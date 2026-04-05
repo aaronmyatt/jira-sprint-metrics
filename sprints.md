@@ -6,7 +6,7 @@ List sprints belonging to a given Jira board. Accepts a `boardId` and an optiona
 import { z } from "npm:zod";
 
 export const schema = z.object({
-  boardId: z.number(),
+  boardId: z.number().default(2662),
   state: z.enum(["active", "closed", "future"]).default("active"),
   sprints: z.array(z.object({
     id: z.number(),
@@ -22,17 +22,19 @@ export const schema = z.object({
 ```json
 {
   "inputs": [
-    { "_name": "active sprints", "boardId": 1, "state": "active" },
-    { "_name": "closed sprints", "boardId": 1, "state": "closed" }
-  ]
+    { "_name": "active sprints", "boardId": 2662, "state": "active" },
+    { "_name": "closed sprints", "boardId": 2662, "state": "closed" }
+  ],
+  "MAX_RESULTS_PER_PAGE": 50,
+  "BOARD_ID": 2662
 }
 ```
 
-## Build Auth Header
-
-Construct the Base64-encoded Basic auth header and base URL from `opts.config`. Identical pattern to the Boards pipeline — reuse the same credential shape from `config.json`.
-
+## Jira API Authentication
 ```ts
+import JiraAuth from "JiraAuth";
+const { fetchWithCache } = await JiraAuth.process()
+input.fetchWithCache = fetchWithCache;
 ```
 
 ## Fetch Sprints
@@ -40,6 +42,28 @@ Construct the Base64-encoded Basic auth header and base URL from `opts.config`. 
 Call `GET /rest/agile/1.0/board/{boardId}/sprint` with the `state` query parameter. Paginate through all results. Collect each sprint's `id`, `name`, `state`, `startDate`, `endDate`, and `completeDate` into `input.sprints`.
 
 ```ts
+const MAX_RESULTS_PER_PAGE = $p.get(opts, "/config/MAX_RESULTS_PER_PAGE") ?? 50;
+const boardId = $p.get(opts, "/config/BOARD_ID");
+input.sprints = [];
+let startAt = 0;
+let isLastPage = false;
+
+while (!isLastPage) {
+  const page = await input.fetchWithCache(`/rest/agile/1.0/board/${boardId}/sprint`, {
+    startAt,
+    maxResults: MAX_RESULTS_PER_PAGE,
+  }, `.cache/jira-sprints-board-${boardId}`);
+
+  const values = page.values ?? [];
+  input.sprints.push(...values);
+  startAt += values.length;
+
+  const total = page.total ?? 0;
+  isLastPage = page.isLast === true || startAt >= total || values.length === 0;
+}
+
+const totalPages = Math.ceil(input.sprints.length / MAX_RESULTS_PER_PAGE) || 1;
+input.fetchResults = `Fetched ${input.sprints.length} sprints across ${totalPages} page(s).`;
 ```
 
 ## Format Output
