@@ -57,8 +57,17 @@ Scan `~/.cache/jira-sprints-metrics.json`. If `input.exclude` is set, filter out
 
 - not: /cachedSprints
   ```ts
-  const allSprints = JSON.parse(await Deno.readTextFile(".cache/jira-sprints-metrics.json"));
-  input.cachedSprints = allSprints.filter(sprint => !sprint.name.includes(input.exclude));
+  import sprintMetrics  from "sprintMetrics"
+  
+  try {
+    const allSprints = JSON.parse(await Deno.readTextFile(".cache/jira-sprints-metrics.json"));
+    input.cachedSprints = allSprints.filter(sprint => !sprint.name.includes(input.exclude));
+  } catch {
+    const results = await sprintMetrics.process();
+    input.cachedSprints = results.sprints;
+    input.grandTotals = results.totals;
+  }
+
   ```
 
 
@@ -100,9 +109,42 @@ If `input.grandTotals` is available, it can be included in the final report to s
     .add("Total Tickets", "Done", "Incomplete", "Completion %", "Met Due Date", "Acceptable", "Late", "Commitment %")
     .add(input.grandTotals.total, input.grandTotals.done, input.grandTotals.incomplete, `${input.grandTotals.completionPct.toFixed(1)}%`, input.grandTotals.met, input.grandTotals.acceptable, input.grandTotals.late, `${input.grandTotals.commitmentPct.toFixed(1)}%`)
     .build();
-
-
   ```
+
+## Present Sprint Trends
+Format `input.sprintTrends` into a readable table showing each sprint's name, end date, completion percentage, and commitment percentage. This allows stakeholders to quickly see how the team's performance has evolved over time and identify any trends or patterns.
+
+```ts
+input.sprintTrendsTable = new Text()
+  .add("Sprint Name", "End Date", "Completion %", "Commitment %");
+
+input.sprintTrends.forEach(sprint => input.sprintTrendsTable.add(
+    sprint.sprintName,
+    sprint.endDate,
+    `${sprint.completionPct.toFixed(1)}%`,
+    `${sprint.commitmentPct.toFixed(1)}%`
+  )
+);
+input.sprintTrendsTable = input.sprintTrendsTable.build();
+```
+
+## Present Developer Leaderboard
+Aggregate per-developer stats across all sprints to create a leaderboard showing each developer's total tickets, completion percentage, and commitment percentage. This highlights individual contributions and can help identify top performers or those who may need support.
+
+```ts
+
+
+input.compileSummaries = input.cachedSprints
+.filter(sprint => sprint.developerSummaries && sprint.developerSummaries.length > 0)
+.map(sprint => {
+  return {
+    sprintName: sprint.name,
+    sprintEndDate: sprint.endDate,
+    developerSummaries: sprint.developerSummaries
+  };
+})
+
+```
 
 ## Format Output
 
