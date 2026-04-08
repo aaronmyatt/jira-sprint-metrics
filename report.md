@@ -129,20 +129,84 @@ input.sprintTrendsTable = input.sprintTrendsTable.build();
 ```
 
 ## Present Developer Leaderboard
+
 Aggregate per-developer stats across all sprints to create a leaderboard showing each developer's total tickets, completion percentage, and commitment percentage. This highlights individual contributions and can help identify top performers or those who may need support.
 
 ```ts
+input.compileLeaderboard = input.cachedSprints
+  .filter(sprint => sprint.developerSummaries && sprint.developerSummaries.length > 0)
+  .reduce((outerAcc, sprint) => {
+    return sprint.developerSummaries.reduce((devAcc, devSummary) => {
+      const existing = devAcc.get(devSummary.assignee) || {
+        assignee: devSummary.assignee,
+        total: 0,
+        done: 0,
+        incomplete: 0,
+        met: 0,
+        acceptable: 0,
+        late: 0,
+        sprintCount: 0,
+      };
 
+      existing.total += devSummary.total;
+      existing.done += devSummary.done;
+      existing.incomplete += devSummary.incomplete;
+      existing.met += devSummary.met;
+      existing.acceptable += devSummary.acceptable;
+      existing.late += devSummary.late;
+      existing.sprintCount += 1;
+      devAcc.set(devSummary.assignee, existing);
+      return devAcc;
+    }, outerAcc);
+  }, new Map());
 
-input.compileSummaries = input.cachedSprints
-.filter(sprint => sprint.developerSummaries && sprint.developerSummaries.length > 0)
-.map(sprint => {
-  return {
-    sprintName: sprint.name,
-    sprintEndDate: sprint.endDate,
-    developerSummaries: sprint.developerSummaries
-  };
-})
+input.leaderboardTable = new Text()
+  .add("Assignee", "Total Tickets", "Done", "Incomplete", "Completion %", "Met Due Date", "Acceptable", "Late", "Commitment %");
+
+[...input.compileLeaderboard.values()]
+  .sort((a, b) => b.overallCompletionPct - a.overallCompletionPct)
+  .forEach(dev => input.leaderboardTable.add(
+    dev.assignee,
+    dev.total,
+    dev.done,
+    dev.incomplete,
+    `${(dev.done / dev.total * 100).toFixed(1)}%`,
+    dev.met,
+    dev.acceptable,
+    dev.late,
+    `${((dev.met + dev.acceptable) / dev.total * 100).toFixed(1)}%`
+  )
+);
+input.leaderboardTable = input.leaderboardTable.build();
+```
+
+## Developer Sprint Tables
+
+Optionally, for each developer, create a table showing their performance in each sprint (tickets completed, completion %, commitment %). This provides a more granular view of individual performance over time.
+
+```ts
+input.developerSprintTables = input.cachedSprints
+  .filter(sprint => sprint.developerSummaries && sprint.developerSummaries.length > 0)
+  .reduce((acc, sprint) => {
+    const sprintTable = sprint.developerSummaries.reduce((tableAcc, devSummary) => {
+      return tableAcc.add(
+        devSummary.assignee,
+        devSummary.total,
+        devSummary.done,
+        devSummary.incomplete,
+        `${(devSummary.done / devSummary.total * 100).toFixed(1)}%`,
+        devSummary.met,
+        devSummary.acceptable,
+        devSummary.late,
+        `${((devSummary.met + devSummary.acceptable) / devSummary.total * 100).toFixed(1)}%`
+      );
+    },
+    new Text()
+    .add("Sprint Name", sprint.name, "", "", "", "", "", "", "")
+    .add("Assignee", "Total Tickets", "Done", "Incomplete", "Completion %", "Met Due Date", "Acceptable", "Late", "Commitment %"))
+
+    return acc.set(sprint.name, sprintTable.build());
+}, new Map());
 
 ```
 
