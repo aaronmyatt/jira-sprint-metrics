@@ -9,9 +9,41 @@ Deno.env.get("JIRA_EMAIL")
 Deno.env.get("JIRA_TOKEN")
 
 ```ts
-input.baseUrl = `https://${Deno.env.get("JIRA_DOMAIN")}`;
-const authString = `${Deno.env.get("JIRA_EMAIL")}:${Deno.env.get("JIRA_TOKEN")}`;
+const makeAuthString = (email, token) => {
+  const _email = email || Deno.env.get("JIRA_EMAIL");
+  const _token = token || Deno.env.get("JIRA_TOKEN");
+  if (!_email || !_token) {
+    throw new Error("Missing JIRA_EMAIL or JIRA_TOKEN in environment variables");
+  }
+  return `${_email}:${_token}`;
+};
+
+input.baseUrl = `https://${Deno.env.get("JIRA_DOMAIN")}` || input.jiraBaseUrl;
+const authString = makeAuthString(input.jiraEmail, input.jiraToken);
 input.authHeader = `Basic ${btoa(authString)}`;
+```
+
+## Clear Old Cache
+Walk the cache dir and remove any .json files older than 24hrs.
+
+```ts
+import { walk } from "jsr:@std/fs/walk";
+import { join } from "jsr:@std/path";
+
+const cacheDir = `.cache/`;
+try {
+  for await (const entry of walk(cacheDir, { maxDepth: 1 })) {
+    if(entry.path.endsWith(".json")) {
+      const stats = await Deno.stat(entry.path);
+      const ageInDays = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60 * 24);
+      if (ageInDays > 1) {
+        await Deno.remove(entry.path);
+      }
+    }
+  }
+} catch {
+// ignore if cache directory doesn't exist or any file errors
+}
 ```
 
 ## Fetch or Cache Helper
