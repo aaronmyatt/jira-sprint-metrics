@@ -9,36 +9,22 @@ Two dimensions are measured:
 
 Results are cached locally as JSON so repeated runs skip the API calls.
 
-```
-import { z } from "npm:zod";
-
-const StatusTransition = z.object({
-  from: z.string(),
-  to: z.string(),
-  at: z.string(),
-});
-
-const TicketOutcome = z.enum(["done", "incomplete"]);
-
-const DueDateOutcome = z.enum([
-  "met",
-  "acceptable",
-  "early",
-  "late",
-  "not-completed",
-  "no-due-date",
-]);
-
+```zod
 const IssueMetric = z.object({
   key: z.string(),
   summary: z.string(),
-  assignee: z.string().default("Unassigned"),
+  assignee: z.string(),
   status: z.string(),
-  finalStatus: z.string().default(""),
+  finalStatus: z.string(),
   dueDate: z.string().optional(),
-  outcome: TicketOutcome.default("incomplete"),
-  dueDateOutcome: DueDateOutcome.default("no-due-date"),
-  transitions: z.array(StatusTransition).default([]),
+  outcome: z.enum(["done", "incomplete"]),
+  dueDateOutcome: z.enum(["met", "acceptable", "early", "late", "not-completed", "no-due-date"]),
+  transitions: z.array(z.object({
+    from: z.string(),
+    to: z.string(),
+    at: z.string(),
+  })),
+  sprintId: z.number(),
 });
 
 const DeveloperSummary = z.object({
@@ -53,18 +39,46 @@ const DeveloperSummary = z.object({
   commitmentPct: z.number(),
 });
 
-z.object({
-  sprintId: z.number(),
-  force: z.boolean().default(false),
-  sprint: z.object({
+const JiraIssuesWithChangelogs = z.object({
+  key: z.string(),
+  fields: z.object({
+    summary: z.string(),
+    assignee: z.object({ displayName: z.string().default("Unassigned") }).nullable(),
+    status: z.object({
+      name: z.enum(["Ready", "Created", "To Do", "In Progress", "Done", "Closed", "Review", "Test", "Blocked / On Hold"]),
+    }),
+    dueDate: z.string().optional(),
+  }),
+  transitions: z.array(z.object({
+    from: z.string(),
+    to: z.string(),
+    at: z.string(),
+  })) 
+});
+
+// output
+const sprintCheck = z.object({
+  sprints: z.array(z.object({
     id: z.number(),
     name: z.string(),
-    startDate: z.string(),
-    endDate: z.string(),
-  }).optional(),
-  issues: z.array(z.any()).default([]),
-  metrics: z.array(IssueMetric).default([]),
-  developerSummaries: z.array(DeveloperSummary).default([]),
+    state: z.string(),
+    originBoardId: z.number(),
+    startDate: z.string().optional(), // some sprints may not have started yet
+    endDate: z.string().optional(), // future sprints may not have an end date
+    metrics: z.array(IssueMetric),
+    developerSummaries: z.array(DeveloperSummary),
+    issues: z.array(JiraIssuesWithChangelogs),
+    totals: z.object({
+      total: z.number(),
+      done: z.number(),
+      incomplete: z.number(),
+      completionPct: z.number(),
+      met: z.number(),
+      acceptable: z.number(),
+      late: z.number(),
+      commitmentPct: z.number(),
+    }),
+  })),
   totals: z.object({
     total: z.number(),
     done: z.number(),
@@ -74,17 +88,12 @@ z.object({
     acceptable: z.number(),
     late: z.number(),
     commitmentPct: z.number(),
-  }).optional(),
-  cached: z.boolean().default(false),
-});
+  }),
+})
 ```
 
 ```json
 {
-  "inputs": [
-    { "_name": "basic", "sprintId": 1 },
-    { "_name": "force refresh", "sprintId": 1, "force": true }
-  ],
   "BOARD_ID": 2662,
   "EXCLUDE_SPRINT": [13538]
 }
@@ -101,8 +110,8 @@ input.fetchWithCache = fetchWithCache;
 ## Get Sprints For Board
 ```ts
 import getSprints from "sprints";
-const boardId = $p.get(opts, "/config/BOARD_ID");
-const { sprints } = await getSprints.process({ boardId: input.boardId, state: "closed" });
+const boardId = input.boardId ?? $p.get(opts, "/config/BOARD_ID");
+const { sprints } = await getSprints.process({ boardId, state: "closed" });
 input.sprints = sprints.filter(s => !$p.get(opts, "/config/EXCLUDE_SPRINT", []).includes(s.id));
 ```
 
@@ -211,7 +220,7 @@ for (const sprint of input.sprints) {
       assignee: issue.fields.assignee?.displayName || "Unassigned",
       status: issue.fields.status.name,
       finalStatus: "",
-      dueDate: issue.fields.duedate,
+      dueDate: issue.fields.duedate || "",
       outcome: "incomplete",
       dueDateOutcome: "no-due-date",
       transitions: issue.transitions || [],
@@ -360,7 +369,14 @@ for (const sprint of input.sprints) {
 }
 ```
 
+## Verify Sprint Data
+
+```ts
+sprintCheck.parse(input);
+```
+
 ## Compute Overall Totals
+
 Aggregate totals across all sprints into `input.totals` for an overall summary.
 
 ```ts
@@ -396,11 +412,4 @@ await Deno.writeTextFile(cachePath, JSON.stringify(input.sprints, null, 2));
 const cacheDir = `.cache`;
 const totalsCachePath = `${cacheDir}/jira-sprints-metrics-totals.json`;
 await Deno.writeTextFile(totalsCachePath, JSON.stringify(input.totals, null, 2));
-```
-
-## Format Output
-
-Shape `input.body` with the sprint name, totals, and per-developer breakdown so the CLI output gives a complete single-sprint report.
-
-```ts
 ```
