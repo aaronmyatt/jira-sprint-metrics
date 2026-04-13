@@ -47,7 +47,7 @@ while (!isLastPage) {
   const page = await input.fetchWithCache(`/rest/agile/1.0/board`, {
     startAt,
     maxResults: MAX_RESULTS_PER_PAGE,
-  });
+  }, [".cache", "boards"]);
 
   const values = page.values ?? [];
   input.boards.push(...values);
@@ -63,8 +63,9 @@ while (!isLastPage) {
 aka `GBG Insights Portal`
 
 ```ts
-input.board = input.boards.find(b => b?.id === $p.get(opts, "/config/BOARD_ID"));
-input.boardId = input.board?.id || $p.get(opts, "/config/BOARD_ID");
+const preferredBoardId = input.boardId ?? $p.get(opts, "/config/BOARD_ID");
+input.board = input.boards.find(b => b?.id === preferredBoardId);
+input.boardId = input.board?.id || preferredBoardId;
 ```
 
 ## Format Output
