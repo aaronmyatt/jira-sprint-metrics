@@ -4,20 +4,54 @@ Aggregate metrics across multiple sprints to show trends and overall developer p
 
 This pipeline does **not** call the Jira API — it relies entirely on locally cached, or precomputed data passed via the `input` object.
 
-## Load All Cached Sprints
+## Load Cached Metrics
 
 Scan `~/.cache/jira-sprints-metrics.json`. If `input.exclude` is set, filter out any sprint whose name includes the exclusion string. Skip this step if `input.cachedSprints` is already populated (e.g. by a previous step or test setup) to avoid unnecessary file reads during development.
 
 - not: /cachedSprints
   ```ts
   import sprintMetrics  from "sprintMetrics"
-  
-  try {
-    const allSprints = JSON.parse(await Deno.readTextFile(".cache/jira-sprints-metrics.json"));
-    input.cachedSprints = allSprints.filter(sprint => !sprint.name.includes(input.exclude));
-  } catch {
-    const results = await sprintMetrics.process();
-    input.cachedSprints = results.sprints;
+  import { join } from "jsr:@std/path";
+
+  const parseBoardId = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+
+  input.boardId = parseBoardId(input.boardId ?? $p.get(opts, "/config/BOARD_ID"));
+  input.cachePaths = {
+    metrics: [
+      input.boardId !== undefined ? join(".cache", "boards", `${input.boardId}`, "jira-sprints-metrics.json") : "",
+      join(".cache", "jira-sprints-metrics.json"),
+    ].filter(Boolean),
+    totals: [
+      input.boardId !== undefined ? join(".cache", "boards", `${input.boardId}`, "jira-sprints-metrics-totals.json") : "",
+      join(".cache", "jira-sprints-metrics-totals.json"),
+    ].filter(Boolean),
+  };
+
+  const exclude = String(input.exclude || "").trim();
+  let allSprints = null;
+
+  for (const cachePath of input.cachePaths.metrics) {
+    try {
+      allSprints = JSON.parse(await Deno.readTextFile(cachePath));
+      input.metricsCachePath = cachePath;
+      break;
+    } catch {
+      // try the next cache candidate
+    }
+  }
+
+  if (allSprints) {
+    input.cachedSprints = exclude
+      ? allSprints.filter(sprint => !sprint.name.includes(exclude))
+      : allSprints;
+  } else {
+    const results = await sprintMetrics.process(input.boardId !== undefined ? { boardId: input.boardId } : {});
+    input.cachedSprints = exclude
+      ? results.sprints.filter(sprint => !sprint.name.includes(exclude))
+      : results.sprints;
     input.grandTotals = results.totals;
   }
   ```
@@ -26,13 +60,22 @@ Scan `~/.cache/jira-sprints-metrics.json`. If `input.exclude` is set, filter out
 
 Also read the pre-computed totals from `~/.cache/jira-sprints-metrics-totals.json` if it exists, so we can include grand totals in the final report without needing to recompute them here.
 
-- not: /totals
+- not: /grandTotals
   ```ts
-  try {
-    input.grandTotals = JSON.parse(await Deno.readTextFile(".cache/jira-sprints-metrics-totals.json"));
-  } catch {
-    input.grandTotals = null;
+  const cachePaths = input.cachePaths?.totals || [];
+  let grandTotals = null;
+
+  for (const cachePath of cachePaths) {
+    try {
+      grandTotals = JSON.parse(await Deno.readTextFile(cachePath));
+      input.totalsCachePath = cachePath;
+      break;
+    } catch {
+      // try the next cache candidate
+    }
   }
+
+  input.grandTotals = grandTotals;
   ```
 
 ## Ensure Chronological Order
