@@ -31,6 +31,7 @@ export const schema = z.object({
 ```
 
 ## Jira API Authentication
+
 ```ts
 import JiraAuth from "JiraAuth";
 const { fetchWithCache } = await JiraAuth.process()
@@ -41,9 +42,15 @@ input.fetchWithCache = fetchWithCache;
 
 Call `GET /rest/agile/1.0/board/{boardId}/sprint` with the `state` query parameter. Paginate through all results. Collect each sprint's `id`, `name`, `state`, `startDate`, `endDate`, and `completeDate` into `input.sprints`.
 
+Ref: https://docs.atlassian.com/jira-software/REST/7.0.4/#agile/1.0/board/%7BboardId%7D/sprint
+
 ```ts
 const MAX_RESULTS_PER_PAGE = $p.get(opts, "/config/MAX_RESULTS_PER_PAGE") ?? 50;
-const boardId = $p.get(opts, "/config/BOARD_ID");
+const boardId = input.boardId || $p.get(opts, "/config/BOARD_ID") || Deno.env.get("BOARD_ID");
+const state = String(input.state || "active").trim().toLowerCase();
+
+input.boardId = boardId;
+input.state = state;
 input.sprints = [];
 let startAt = 0;
 let isLastPage = false;
@@ -52,7 +59,8 @@ while (!isLastPage) {
   const page = await input.fetchWithCache(`/rest/agile/1.0/board/${boardId}/sprint`, {
     startAt,
     maxResults: MAX_RESULTS_PER_PAGE,
-  }, `.cache/jira-sprints-board-${boardId}`);
+    state,
+  }, [".cache", 'boards', `${boardId}`, 'sprints']);
 
   const values = page.values ?? [];
   input.sprints.push(...values);
@@ -71,4 +79,26 @@ input.fetchResults = `Fetched ${input.sprints.length} sprints across ${totalPage
 Shape `input.body` as a table-friendly list. Each row should show sprint ID, name, state, and date range so the user can pick which sprint to analyse.
 
 ```ts
+import formatTableAs from "jsr:@dep/table";
+
+const sprintTable = new formatTableAs.Markdown()
+  .add("Sprint ID", "Name", "State", "Start", "End");
+
+for (const sprint of input.sprints) {
+  sprintTable.add(
+    sprint.id,
+    sprint.name,
+    sprint.state,
+    sprint.startDate || "",
+    sprint.endDate || sprint.completeDate || "",
+  );
+}
+
+input.body = [
+  "# Sprints",
+  `Board ID: ${input.boardId}`,
+  `State: ${input.state}`,
+  input.fetchResults,
+  input.sprints.length > 0 ? sprintTable.build() : "No sprints were returned for this board/state.",
+].join("\n\n");
 ```
