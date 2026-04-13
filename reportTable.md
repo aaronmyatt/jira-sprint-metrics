@@ -23,11 +23,13 @@ Object.assign(input, await sprintsOverview.process());
 ```
 
 ## Present Totals
+
 If `input.grandTotals` is available, it can be included in the final report to show the overall completion and commitment percentages across all sprints, giving a high-level summary of team performance.
 
 - if: /grandTotals
   ```ts
   import formatTableAs from "jsr:@dep/table";
+  
   input.grandTotalsTable = new formatTableAs.Markdown()
     .add("Overall Totals Across All Sprints", "", "", "", "", "", "", "")
     .add(
@@ -46,6 +48,7 @@ If `input.grandTotals` is available, it can be included in the final report to s
   ```
 
 ## Present Sprint Trends
+
 Format `input.cachedSprints` into a readable table showing each sprint's name, end date, completion percentage, and commitment percentage. This allows stakeholders to quickly see how the team's performance has evolved over time and identify any trends or patterns.
 
 ```ts
@@ -71,7 +74,7 @@ input.leaderboardTable = new formatTableAs.Markdown()
   .add("Assignee", "Total Tickets", "Done", "Incomplete", "Completion %", "Met Due Date", "Acceptable", "Late", "Commitment %");
 
 [...input.compileLeaderboard.values()]
-  .sort((a, b) => b.overallCompletionPct - a.overallCompletionPct)
+  .sort((a, b) => ((b.total > 0 ? b.done / b.total : 0) - (a.total > 0 ? a.done / a.total : 0)))
   .forEach(dev => input.leaderboardTable.add(
     dev.assignee,
     dev.total,
