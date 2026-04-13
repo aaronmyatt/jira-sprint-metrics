@@ -4,6 +4,13 @@ A simple wrapper around npm:nodemailer to send emails with a configured SMTP ser
 
 Ref: https://nodemailer.com/
 
+Environment variables for SMTP config (if not provided via input or config file):
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_USER`
+- `SMTP_PASS`
+- `SMTP_FROM`
+
 ## Pull in SMTP Config
 
 ```ts
