@@ -88,6 +88,7 @@ const sprintCheck = z.object({
     acceptable: z.number(),
     late: z.number(),
     commitmentPct: z.number(),
+    avgCompletionTime: z.number().optional(),
   }),
 })
 ```
@@ -108,10 +109,12 @@ input.fetchWithCache = fetchWithCache;
 ```
 
 ## Get Sprints For Board
+
 ```ts
 import getSprints from "sprints";
 const boardId = input.boardId ?? $p.get(opts, "/config/BOARD_ID");
 const { sprints } = await getSprints.process({ boardId, state: "closed" });
+input.boardId = boardId;
 input.sprints = sprints.filter(s => !$p.get(opts, "/config/EXCLUDE_SPRINT", []).includes(s.id));
 ```
 
@@ -131,7 +134,7 @@ for (const sprint of input.sprints) {
       startAt,
       maxResults: MAX_RESULTS_PER_PAGE,
       fields: "summary,status,assignee,duedate",
-    }, `.cache/jira-issues-sprint-${sprint.id}`);
+    }, [".cache", 'sprint', `${sprint.id}`, 'issues']);
 
     const values = page.issues ?? [];
     sprint.issues.push(...values);
@@ -161,7 +164,7 @@ for (const sprint of input.sprints) {
       const page = await input.fetchWithCache(`/rest/api/3/issue/${issue.key}/changelog`, {
         startAt,
         maxResults: MAX_RESULTS_PER_PAGE,
-      }, `.cache/jira-changelog-${issue.key}`);
+      }, [".cache", "sprint", `${sprint.id}`, "issues", "changelog", `${issue.key}`]);
 
       const values = page.values ?? [];
       for (const history of values) {
@@ -188,7 +191,7 @@ for (const sprint of input.sprints) {
 
 ## Compute Ticket Outcomes
 
-For each issue, determine its `finalStatus` — the last status it held before `input.sprints[].endDate`. 
+For each issue, determine its `finalStatus` — the last status it held before `input.sprints[].endDate`.
 For the purposes of these sprint metric, a developer is consider DONE once they stop actively working on the ticket.
 
 Therefore, we classify:
@@ -369,10 +372,27 @@ for (const sprint of input.sprints) {
 }
 ```
 
-## Verify Sprint Data
+## Throughput Metrics
+
+Calculate throughput metrics like average completion time (from first transition to done) and average time in each status for all completed tickets. This can help identify bottlenecks in the workflow.
 
 ```ts
-sprintCheck.parse(input);
+import { format as formatDuration } from "jsr:@std/fmt/duration";
+
+for (const sprint of input.sprints) {
+  const completedMetrics = (sprint.metrics || []).filter(m => m.outcome === "done");
+  const totalCompletionTime = completedMetrics.reduce((sum, m) => {
+    const doneTransition = m.transitions.find(t => t.to === m.finalStatus);
+    const firstTransition = m.transitions[0];
+    if (doneTransition && firstTransition) {
+      const completionTime = new Date(doneTransition.at).getTime() - new Date(firstTransition.at).getTime();
+      return sum + completionTime;
+    }
+    return sum;
+  }, 0);
+  const avgCompletionTime = completedMetrics.length > 0 ? totalCompletionTime / completedMetrics.length : 0;
+  sprint.totals.avgCompletionTime = formatDuration(avgCompletionTime, { ignoreZero: true});
+}
 ```
 
 ## Compute Overall Totals
@@ -392,7 +412,12 @@ input.totals = {
 const commitmentDenom = input.totals.met + input.totals.acceptable + input.totals.late;
 input.totals.commitmentPct = commitmentDenom > 0 ? ((input.totals.met + input.totals.acceptable) / commitmentDenom) * 100 : 0;
 input.totals.completionPct = input.totals.total > 0 ? (input.totals.done / input.totals.total) * 100 : 0;
+```
 
+## Verify Sprint Data
+
+```ts
+sprintCheck.parse(input);
 ```
 
 ## Save Cache
@@ -400,8 +425,11 @@ input.totals.completionPct = input.totals.total > 0 ? (input.totals.done / input
 Write the computed data (`sprint`, `metrics`, `developerSummaries`, `totals`) as pretty-printed JSON to `~/.cache/jira-sprints-metrics.json`. Create the directory if it doesn't exist.
 
 ```ts
-const cacheDir = `.cache`;
-const cachePath = `${cacheDir}/jira-sprints-metrics.json`;
+import { join } from "jsr:@std/path";
+
+const boardId = input.boardId ?? $p.get(opts, "/config/BOARD_ID");
+const cacheDir = join(".cache", "boards", `${boardId}`);
+const cachePath = join(cacheDir, "jira-sprints-metrics.json");
 await Deno.mkdir(cacheDir, { recursive: true });
 await Deno.writeTextFile(cachePath, JSON.stringify(input.sprints, null, 2));
 ```
@@ -409,7 +437,9 @@ await Deno.writeTextFile(cachePath, JSON.stringify(input.sprints, null, 2));
 ## Save aggregate totals
 
 ```ts
-const cacheDir = `.cache`;
-const totalsCachePath = `${cacheDir}/jira-sprints-metrics-totals.json`;
+const boardId = input.boardId ?? $p.get(opts, "/config/BOARD_ID");
+const cacheDir = join(".cache", "boards", `${boardId}`);
+const totalsCachePath = join(cacheDir, "jira-sprints-metrics-totals.json");
+await Deno.mkdir(cacheDir, { recursive: true });
 await Deno.writeTextFile(totalsCachePath, JSON.stringify(input.totals, null, 2));
 ```
