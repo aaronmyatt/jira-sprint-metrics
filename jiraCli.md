@@ -175,30 +175,9 @@ input.boardId = input.boardId || input.selectedBoard?.id || $p.get(opts, "/confi
 
 - flags: /boards
   ```ts
-  import formatTableAs from "jsr:@dep/table";
-  import getBoards from "boards";
-
-  const results = await getBoards.process();
-
-  const tableHeaders = ["ID", "Name", "Type"];
-  if(input.selectedBoard) {
-    tableHeaders.push("Selected");
-  }
-  input.body = new formatTableAs.Markdown()
-    .add(...tableHeaders);
+  import boardsTable from "reportBoards"
   
-  results.boards
-    .toSorted((left, right) => left.name.localeCompare(right.name))
-    .forEach(board => {
-      const columns = [board.id,
-        board.name,
-        board.type || "unknown",
-      ]
-      if(input.selectedBoard) {
-        columns.push(board.id === input.selectedBoard.id ? "✅" : "");
-      }
-      input.body.add(...columns)
-    });
+  const output = await boardsTable.process();
 
   console.log([
     "# Select a board",
@@ -206,12 +185,12 @@ input.boardId = input.boardId || input.selectedBoard?.id || $p.get(opts, "/confi
     "Enter a board ID to select a board for subsequent commands.",
     "This will be cached for future runs until you select a different board.",
     "",
-    input.body.build(),
+    output.body,
     "",
     `Current selected board ID: ${input.selectedBoard?.id || "none"}`,
   ].join("\n"));
   const selectedBoardId = prompt("Board ID: ");
-  const selectedBoard = results.boards.find(board => String(board.id) === String(selectedBoardId));
+  const selectedBoard = output.boards.find(board => String(board.id) === String(selectedBoardId));
   if (!selectedBoard) {
     input.body = `# Board not found\n\nNo board was found with ID "${selectedBoardId}".`;
     return;
