@@ -204,6 +204,7 @@ input.boardId = input.boardId || input.selectedBoard?.id || $p.get(opts, "/confi
 
 - flags: /sprints
   ```ts
+  import formatTableAs from "jsr:@dep/table";
   import getSprints from "sprints";
 
   if (!input.boardId) {
@@ -225,7 +226,7 @@ input.boardId = input.boardId || input.selectedBoard?.id || $p.get(opts, "/confi
   ));
   input.body = [
     "# Sprints",
-    `Board ID: ${boardId}`,
+    `Board ID: ${input.boardId}`,
     `State: closed`,
     results.fetchResults,
     results.sprints.length > 0 ? input.body.build() : "No sprints were returned for this board/state.",
@@ -243,7 +244,7 @@ input.boardId = input.boardId || input.selectedBoard?.id || $p.get(opts, "/confi
     return;
   }
 
-  const results = await getReport.process({ boardId: input.boardId, format: "all" });
+  const results = await getReport.process({ boardId: input.boardId, format: { all: true } });
   input.body = results.body || "# Jira Sprint Report\n\nNo report sections were generated.";
   ```
 
