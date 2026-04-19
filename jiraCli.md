@@ -14,7 +14,9 @@ const JiraAuthSchema = z.object({
 ```json
 {
   "jiraAuthPath": ".cache/jira-auth.json",
-  "selectedBoardPath": ".cache/selected-board.json"
+  "selectedBoardPath": ".cache/selected-board.json",
+  "pendingLoginPath": ".cache/pending-login.json",
+  "currentLoginPath": ".cache/current-login.json"
 }
 ```
 
@@ -24,21 +26,27 @@ Read Jira credentials from `input`, then `.cache/jira-auth.json`, then `Deno.env
 ```ts
 import { existsSync } from "jsr:@std/fs/exists";
 
-try {
-  input.jiraAuthConfig = JSON.parse(await Deno.readTextFile($p.get(opts, "/config/jiraAuthPath")));
-} catch {
-  input.jiraAuthConfig = {
-    JIRA_DOMAIN: $p.get(opts, '/config/JIRA_DOMAIN') || Deno.env.get("JIRA_DOMAIN") || "",
-    JIRA_EMAIL: $p.get(opts, '/config/JIRA_EMAIL') || Deno.env.get("JIRA_EMAIL") || "",
-    JIRA_TOKEN: $p.get(opts, '/config/JIRA_TOKEN') || Deno.env.get("JIRA_TOKEN") || "",
-  };
+input.currentUser = await Deno.readTextFile($p.get(opts, "/config/currentLoginPath"))
+  .then(raw => JSON.parse(raw))
+  .catch(() => null);
+
+if (input.currentUser?.email) {
+  console.log(`Current authenticated user: ${input.currentUser.email}`);
+} else {
+  console.log("No authenticated user found in cache.");
 }
 
-try {
-  input.selectedBoard = JSON.parse(await Deno.readTextFile($p.get(opts, "/config/selectedBoardPath")));
-} catch {
-  input.selectedBoard = null;
-}
+input.jiraAuthConfig = await Deno.readTextFile($p.get(opts, "/config/jiraAuthPath"))
+  .then(raw => JSON.parse(raw))
+  .catch(() => ({
+     JIRA_DOMAIN: $p.get(opts, '/config/JIRA_DOMAIN') || Deno.env.get("JIRA_DOMAIN") || "",
+     JIRA_EMAIL: $p.get(opts, '/config/JIRA_EMAIL') || Deno.env.get("JIRA_EMAIL") || "",
+     JIRA_TOKEN: $p.get(opts, '/config/JIRA_TOKEN') || Deno.env.get("JIRA_TOKEN") || "",
+  }));
+
+input.selectedBoard = await Deno.readTextFile($p.get(opts, "/config/selectedBoardPath"))
+  .then(raw => JSON.parse(raw))
+  .catch(() => null);
 
 input.boardId = input.boardId || input.selectedBoard?.id || $p.get(opts, "/config/BOARD_ID") || Deno.env.get("BOARD_ID");
 ```
@@ -95,26 +103,26 @@ input.boardId = input.boardId || input.selectedBoard?.id || $p.get(opts, "/confi
 
 ## Login
 
-- if: /command/login
+Two-step magic code authentication flow:
+1. Prompt for email and send a magic code to the email address. Cache the pending login with the challenge ID.
+2. Prompt for the verification code, verify it, and cache the authenticated session if successful.
+
+- flags: /login
   ```ts
   import magicCodeAuth from "magicCodeAuth";
 
-  const existingLogin = await input.cli.readJson(input.cli.paths.login) || {};
-  const email = input.cli.promptRequired("Email", String(existingLogin.email || ""));
-  const sendResult = await magicCodeAuth.process({ email, action: { send: true } });
-  const sendIssues = [
-    ...(sendResult.errors || []),
-    ...(sendResult.error || []),
-  ];
+  console.log(
+    "WAT!"
+  )
 
-  if (sendIssues.length > 0 || !sendResult.challengeId || !sendResult.emailSent) {
+  const email = prompt(`Enter your email to log in${input.currentUser?.email ? ` (current: ${input.currentUser.email})` : ""}:`) || input.currentUser?.email || "";
+  const sendResult = await magicCodeAuth.process({ email, action: { send: true } });
+  if(sendResult.error) {
     input.body = [
-      "# Login failed",
+      "# Failed to send magic code",
       "",
-      `Could not send a verification code to ${email}.`,
-      ...(sendIssues.length > 0
-        ? ["", "Issues:", ...sendIssues.map((issue) => `- ${issue.message || issue.reason || JSON.stringify(issue)}`)]
-        : []),
+      `- Email: ${email}`,
+      `- Reason: ${sendResult.error[0].reason || "unknown"}`,
     ].join("\n");
     return;
   }
@@ -125,8 +133,10 @@ input.boardId = input.boardId || input.selectedBoard?.id || $p.get(opts, "/confi
     createdAt: new Date().toISOString(),
   };
 
-  await input.cli.writeJson(input.cli.paths.pendingLogin, pendingLogin);
-  const code = input.cli.promptRequired("Verification code");
+  console.log(`Magic code sent to ${email}. Challenge ID: ${sendResult.challengeId}`);
+
+  await Deno.writeTextFile($p.get(opts, "/config/pendingLoginPath"), JSON.stringify(pendingLogin, null, 2), { create: true });
+  const code = prompt("Verification code") || "";
   const verifyResult = await magicCodeAuth.process({
     email,
     challengeId: pendingLogin.challengeId,
@@ -144,18 +154,15 @@ input.boardId = input.boardId || input.selectedBoard?.id || $p.get(opts, "/confi
       `- Reason: ${verifyIssue?.reason || "verification-failed"}`,
       ...(verifyIssue?.attemptsLeft !== undefined ? [`- Attempts left: ${verifyIssue.attemptsLeft}`] : []),
       "",
-      `Pending login remains cached in ${input.cli.paths.pendingLogin}.`,
+      `Pending login remains cached in ${$p.get(opts, "/config/pendingLoginPath")}.`,
     ].join("\n");
     return;
   }
 
-  await input.cli.writeJson(input.cli.paths.login, {
-    ...verifyResult.auth,
-    updatedAt: new Date().toISOString(),
-  });
+  await Deno.writeTextFile($p.get(opts, "/config/currentLoginPath"), JSON.stringify(verifyResult.auth, null, 2), { create: true });
 
   try {
-    await Deno.remove(input.cli.paths.pendingLogin);
+    await Deno.remove($p.get(opts, "/config/pendingLoginPath"));
   } catch {
     // ignore if the pending file is already missing
   }
@@ -167,7 +174,7 @@ input.boardId = input.boardId || input.selectedBoard?.id || $p.get(opts, "/confi
     `- Email: ${verifyResult.auth.email}`,
     `- Challenge ID: ${verifyResult.auth.challengeId}`,
     `- Authenticated at: ${verifyResult.auth.authenticatedAt}`,
-    `- Session cache: ${input.cli.paths.login}`,
+    `- Session cache: ${$p.get(opts, "/config/currentLoginPath")}`,
   ].join("\n");
   ```
 
