@@ -1,5 +1,7 @@
 # Report Boards With Table
 
+Fetches all Jira boards by delegating to the boards sub-pipeline and renders them as a sorted Markdown table with ID, Name, and Type columns. If input.selectedBoard is set, an additional Selected column is appended and the matching board is marked with a checkmark. The final Markdown table string is written to input.body.
+
 ## Get Boards
 
 ```ts
