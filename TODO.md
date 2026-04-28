@@ -114,7 +114,7 @@ thin pass-through and `storageFs` does the adaptation work.
 
 ### Phase 0 — Prep
 
-- [ ] Confirm Deno version ≥ 1.38 (KV GA). Run `deno --version`.
+- [x] Confirm Deno version ≥ 1.38 (KV GA). Run `deno --version`.
 - [ ] Create a Deno Deploy project (empty) — record its name and slug.
 - [ ] Generate strong secrets for `MAGIC_CODE_PEPPER` and `SESSION_SECRET`
       (each 32+ random bytes, hex-encoded).
@@ -123,19 +123,19 @@ thin pass-through and `storageFs` does the adaptation work.
 
 #### `storageFs.md` (new)
 
-- [ ] `json` config: `{ "root": ".cache/pd-storage" }` — base directory for all
+- [x] `json` config: `{ "root": ".cache/pd-storage" }` — base directory for all
       files, callers can override by placing `storage.root` on `input`.
-- [ ] Step `Resolve Path`: flatten `input.key` → `path.join(root, ...key) + ".json"`;
+- [x] Step `Resolve Path`: flatten `input.key` → `path.join(root, ...key) + ".json"`;
       ensure parent directory exists. Uses
       [`jsr:@std/path/join`](https://jsr.io/@std/path/doc/~/join) and
       [`Deno.mkdir`](https://docs.deno.com/api/deno/~/Deno.mkdir).
-- [ ] Step `Get` — `if: /action/get`:
-  - [ ] Read file, JSON-parse `{ value, expiresAt }`.
-  - [ ] If `expiresAt` is in the past, delete the file and return `null`.
-  - [ ] `input.result = { value, versionstamp: stats.mtime.toISOString() }`.
-- [ ] Step `Set` — `if: /action/set`:
-  - [ ] Compute `expiresAt = ttlMs ? Date.now() + ttlMs : null`.
-  - [ ] Atomic write via temp file + rename so concurrent readers don't see
+- [x] Step `Get` — `if: /action/get`:
+  - [x] Read file, JSON-parse `{ value, expiresAt }`.
+  - [x] If `expiresAt` is in the past, delete the file and return `null`.
+  - [x] `input.result = { value, versionstamp: stats.mtime.toISOString() }`.
+- [x] Step `Set` — `if: /action/set`:
+  - [x] Compute `expiresAt = ttlMs ? Date.now() + ttlMs : null`.
+  - [x] Atomic write via temp file + rename so concurrent readers don't see
         half-written JSON. Ref:
         [`Deno.rename`](https://docs.deno.com/api/deno/~/Deno.rename).
 - [ ] Step `Delete` — `if: /action/delete`:
