@@ -111,10 +111,6 @@ Two-step magic code authentication flow:
   ```ts
   import magicCodeAuth from "magicCodeAuth";
 
-  console.log(
-    "WAT!"
-  )
-
   const email = prompt(`Enter your email to log in${input.currentUser?.email ? ` (current: ${input.currentUser.email})` : ""}:`) || input.currentUser?.email || "";
   const sendResult = await magicCodeAuth.process({ email, action: { send: true } });
   if(sendResult.error) {
