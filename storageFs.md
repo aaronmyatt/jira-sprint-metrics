@@ -1,8 +1,12 @@
 # File System Storage Injectable
 
-We will pass in a file system storage pipeline to abstract away these details and enable us to swap out for a `Deno.KV` implementation in preparation for deployment to Deno Deploy.
+We will pass in a file system storage pipeline to abstract away storage details
+and enable us to swap out for a `Deno.KV` implementation in preparation for
+deployment to Deno Deploy.
 
-By default we will use the `Deno.FileSystem` API to store our data in a local directory. We can configure the root directory for our file system storage in the `config.json` file.
+By default we will use the `Deno.FileSystem` API to store our data in a
+local directory. We can configure the root directory for our
+file system storage in the `config.json` file.
 
 ```json
 {
@@ -24,12 +28,36 @@ export const schema = z.object({
         });
         return expiresAt.toString();
     }),
-    key: z.array(z.string()),
+    keyParts: z.array(z.string()),
 });
 ```
 
+## Utils
+
 ```ts
-console.log(input.key)
+// Parse stored ISO string back to Temporal.Instant for proper comparison
+// Ref: https://tc39.es/proposal-temporal/#sec-temporal.instant.from
+input.raiseWhenExpired = async (data: { value: any; expiresAt?: string }, filePath: string) => {
+    if (data.expiresAt) {
+        const now = Temporal.Now.instant();
+        const expiry = Temporal.Instant.from(data.expiresAt);
+        
+        // Compare Temporal instants directly (returns -1, 0, or 1)
+        // Ref: https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.compare
+        if (Temporal.Instant.compare(now, expiry) > 0) {
+            await Deno.remove(filePath); // Clean up expired file
+            throw new Error("Data has expired");
+        }
+    }
+};
+
+input.readOrRaise = async (filePath: string) => {
+    const raw = await Deno.readTextFile(filePath);
+    const data = JSON.parse(raw);
+    await input.raiseWhenExpired(data, filePath); // Check if the data has expired
+    return data;
+}
+
 ```
 
 ## Create Cache Directory
@@ -45,30 +73,10 @@ await ensureDir(input.cacheDir);
 ## Get Item
 
 ```ts
-// Parse stored ISO string back to Temporal.Instant for proper comparison
-// Ref: https://tc39.es/proposal-temporal/#sec-temporal.instant.from
-input.raiseWhenExpired = async (data: { value: any; expiresAt?: string }, filePath: string) => {
-    if (data.expiresAt) {
-        const now = Temporal.Now.instant();
-        const expiry = Temporal.Instant.from(data.expiresAt);
-        
-        // Compare Temporal instants directly (returns -1, 0, or 1)
-        // Ref: https://tc39.es/proposal-temporal/#sec-temporal.instant.prototype.compare
-            console.log(`Data at ${filePath} has expired (expired at ${expiry.toString()}, now is ${now.toString()})`);
-        if (Temporal.Instant.compare(now, expiry) > 0) {
-            await Deno.remove(filePath); // Clean up expired file
-            throw new Error("Data has expired");
-        }
-    }
-};
-
-input.get = async (key: string[]) => {
-    const filePath = join(input.cacheDir, ...key);
+input.get = async (keyParts: string[]) => {
+    const filePath = join(input.cacheDir, ...keyParts);
     try {
-        const raw = await Deno.readTextFile(filePath);
-        console.log(`Attempting to read cache file: ${filePath}`, raw);
-        const data = JSON.parse(raw);
-        await input.raiseWhenExpired(data, filePath); // Check if the data has expired
+        const data = await input.readOrRaise(filePath);
         return {
             key: filePath,
             value: data.value,
@@ -91,14 +99,14 @@ input.get = async (key: string[]) => {
 
 - if: /action/get
 - ```ts
-  input.result = await input.get(input.key);
+  Object.assign(input, await input.get(input.keyParts));
   ```
 
 ## Delete Item
 
 ```ts
-input.delete = async (key: string[]) => {
-    const filePath = join(input.cacheDir, ...key);
+input.delete = async (keyParts: string[]) => {
+    const filePath = join(input.cacheDir, ...keyParts);
     try {
         await Deno.remove(filePath);
         return { key: filePath };
@@ -113,19 +121,26 @@ input.delete = async (key: string[]) => {
 
 ## Sweep Expired Items
 
-Since it will be fairly cheap to read the directory and check for expired items, we will do this on every operation to ensure we are not keeping around expired data.
+Since it will be fairly cheap to read the directory and check for expired items,
+we will do this on every operation to ensure we are not keeping around expired data.
+
+I was keep to reuse the get method here but it would require
+wrangling the absolute path returned by `walk`, so I'll lean
+on the extracted readOrRaise method
 
 ```ts
 import { walk } from "jsr:@std/fs/walk";
 
 for await (const entry of walk(input.cacheDir)) {
     if (entry.isFile) {
-        const filePath = join(input.cacheDir, entry.name);
-        try {
-            input.get([entry.path]); // This will automatically delete expired files
-        } catch (error) {
-            console.error(`Error processing cache file ${filePath}:`, error);
-        }
+        await input.readOrRaise(entry.path)
+            .catch((error) => {
+                if (error.message === "Data has expired") {
+                    console.debug(`Removing expired cache file: ${entry.path}`);
+                } else {
+                    console.error(`Error reading cache file ${entry.path}:`, error);
+                }
+            });
     }
 }
 ```
@@ -139,10 +154,10 @@ first, then rename it to the final destination.
 ```ts
 import { ensureDir, ensureFile } from "jsr:@std/fs";
 
-input.set = async (key: string[], value: any, ttl?: number) => {
+input.set = async (keyParts: string[], value: any, ttl?: number) => {
     const uuid = crypto.randomUUID();
-    const tempFilePath = join(input.cacheDir, ...key, uuid) + ".tmp";
-    const filePath = join(input.cacheDir, ...key) + ".json";
+    const tempFilePath = join(input.cacheDir, ...keyParts) + `-${uuid}.tmp`;
+    const filePath = join(input.cacheDir, ...keyParts);
     const expiresAt = ttl || opts.config.ttl || input.ttl;
     const data = {
         value,
@@ -163,5 +178,5 @@ input.set = async (key: string[], value: any, ttl?: number) => {
 
 - if: /action/set
 - ```ts
-  input.result = await input.set(input.key, input.value, input.ttl);
+  Object.assign(input, await input.set(input.keyParts, input.value));
   ```
