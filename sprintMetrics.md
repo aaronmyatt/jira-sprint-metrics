@@ -45,7 +45,7 @@ const JiraIssuesWithChangelogs = z.object({
     summary: z.string(),
     assignee: z.object({ displayName: z.string().default("Unassigned") }).nullable(),
     status: z.object({
-      name: z.enum(["Ready", "Created", "To Do", "In Progress", "Done", "Closed", "Review", "Test", "Blocked / On Hold"]),
+      name: z.string(),
     }),
     dueDate: z.string().optional(),
   }),
@@ -95,8 +95,7 @@ const sprintCheck = z.object({
 
 ```json
 {
-  "BOARD_ID": 2662,
-  "EXCLUDE_SPRINT": [13538]
+  "BOARD_ID": 2662
 }
 ```
 
@@ -112,10 +111,8 @@ input.fetchWithCache = fetchWithCache;
 
 ```ts
 import getSprints from "sprints";
-const boardId = input.boardId ?? $p.get(opts, "/config/BOARD_ID");
-const { sprints } = await getSprints.process({ boardId, state: "closed" });
-input.boardId = boardId;
-input.sprints = sprints.filter(s => !$p.get(opts, "/config/EXCLUDE_SPRINT", []).includes(s.id));
+input.boardId = input.boardId || $p.get(opts, "/config/BOARD_ID");
+Object.assign(input, await getSprints.process(input));
 ```
 
 ## Fetch Issues
@@ -134,7 +131,7 @@ for (const sprint of input.sprints) {
       startAt,
       maxResults: MAX_RESULTS_PER_PAGE,
       fields: "summary,status,assignee,duedate",
-    }, [".cache", 'sprint', `${sprint.id}`, 'issues']);
+    }, ['sprint', `${sprint.id}`, 'issues']);
 
     const values = page.issues ?? [];
     sprint.issues.push(...values);
@@ -164,7 +161,7 @@ for (const sprint of input.sprints) {
       const page = await input.fetchWithCache(`/rest/api/3/issue/${issue.key}/changelog`, {
         startAt,
         maxResults: MAX_RESULTS_PER_PAGE,
-      }, [".cache", "sprint", `${sprint.id}`, "issues", "changelog", `${issue.key}`]);
+      }, ["sprint", `${sprint.id}`, "issues", "changelog", `${issue.key}`]);
 
       const values = page.values ?? [];
       for (const history of values) {
@@ -418,28 +415,4 @@ input.totals.completionPct = input.totals.total > 0 ? (input.totals.done / input
 
 ```ts
 sprintCheck.parse(input);
-```
-
-## Save Cache
-
-Write the computed data (`sprint`, `metrics`, `developerSummaries`, `totals`) as pretty-printed JSON to `~/.cache/jira-sprints-metrics.json`. Create the directory if it doesn't exist.
-
-```ts
-import { join } from "jsr:@std/path";
-
-const boardId = input.boardId ?? $p.get(opts, "/config/BOARD_ID");
-const cacheDir = join(".cache", "boards", `${boardId}`);
-const cachePath = join(cacheDir, "jira-sprints-metrics.json");
-await Deno.mkdir(cacheDir, { recursive: true });
-await Deno.writeTextFile(cachePath, JSON.stringify(input.sprints, null, 2));
-```
-
-## Save aggregate totals
-
-```ts
-const boardId = input.boardId ?? $p.get(opts, "/config/BOARD_ID");
-const cacheDir = join(".cache", "boards", `${boardId}`);
-const totalsCachePath = join(cacheDir, "jira-sprints-metrics-totals.json");
-await Deno.mkdir(cacheDir, { recursive: true });
-await Deno.writeTextFile(totalsCachePath, JSON.stringify(input.totals, null, 2));
 ```
