@@ -34,7 +34,10 @@ input.storage = StorageFs;
 
 Read Jira credentials from `input`, then `jira-auth.json`, then `Deno.env`.
 ```ts
-input.currentUser = await input.storage.process({ keyParts: [$p.get(opts, '/config/currentLoginKey')], action: { get: true } })
+input.currentUser = await input.storage.process({ 
+  keyParts: [$p.get(opts, '/config/currentLoginKey')], 
+  action: { get: true }
+})
 
 if (input.currentUser.value?.email) {
   console.log(`Current authenticated user: ${input.currentUser.value.email}`);
@@ -120,7 +123,9 @@ Two-step magic code authentication flow:
   import magicCodeAuth from "magicCodeAuth";
 
   const email = prompt(`Enter your email to log in${input.currentUser?.email ? ` (current: ${input.currentUser.email})` : ""}:`) || input.currentUser?.email || "";
+
   const sendResult = await magicCodeAuth.process({ email, action: { send: true } });
+
   if(sendResult.error) {
     input.body = [
       "# Failed to send magic code",
@@ -143,52 +148,57 @@ Two-step magic code authentication flow:
     keyParts: [$p.get(opts, '/config/pendingLoginKey')],
     action: { set: true },
     value: pendingLogin,
+    ttl: Number(Deno.env.get("MAGIC_CODE_TTL_MINUTES")) * 60 * 1000,
   });
   
-  const code = prompt("Verification code") || "";
-  const verifyResult = await magicCodeAuth.process({
-    email,
-    challengeId: pendingLogin.challengeId,
-    code,
-    action: { verify: true },
-  });
+  while (true) {
+    const code = prompt("Verification code") || "";
+    const verifyResult = await magicCodeAuth.process({
+      email,
+      challengeId: pendingLogin.challengeId,
+      code,
+      action: { verify: true },
+    });
 
-  const verifyIssue = verifyResult.error?.[0];
-  if (!verifyResult.auth?.authenticated) {
+    const verifyIssue = verifyResult.error?.[0];
+
+    if (verifyIssue?.reason === "invalid-code") {
+      console.warn(`Invalid code. Attempts left: ${verifyIssue.attemptsLeft}`);
+      delete verifyResult.error; // Clear error since it will remain the same on the next loop iteration until success or expiration
+      continue;
+    } else if (verifyIssue) {
+      input.body = [
+        "# Login failed",
+        "",
+        `- Email: ${email}`,
+        `- Reason: ${verifyIssue.reason || "unknown"}`,
+      ].join("\n");
+      return;
+    }
+
+    await input.storage.process({
+      keyParts: [$p.get(opts, '/config/currentLoginKey')],
+      action: { set: true },
+      value: verifyResult.auth,
+    });
+
+    Deno.remove($p.get(opts, "/config/pendingLoginKey"))
+      // Ignore error if pending login cache doesn't exist 
+      .catch(() => { });
+
+    input.auth = verifyResult.auth;
     input.body = [
-      "# Login not verified",
+      "# Login verified",
       "",
-      `- Email: ${email}`,
-      `- Challenge ID: ${pendingLogin.challengeId}`,
-      `- Reason: ${verifyIssue?.reason || "verification-failed"}`,
-      ...(verifyIssue?.attemptsLeft !== undefined ? [`- Attempts left: ${verifyIssue.attemptsLeft}`] : []),
-      "",
-      `Pending login remains cached in ${$p.get(opts, "/config/pendingLoginKey")}.`,
+      `- Email: ${verifyResult.auth.email}`,
+      `- Challenge ID: ${verifyResult.auth.challengeId}`,
+      `- Authenticated at: ${verifyResult.auth.authenticatedAt}`,
+      `- Session cache: ${$p.get(opts, "/config/currentLoginKey")}`,
     ].join("\n");
-    return;
+    
+    break;
   }
   
-  await input.storage.process({
-    keyParts: [$p.get(opts, '/config/currentLoginKey')],
-    action: { set: true },
-    value: verifyResult.auth,
-  });
-
-  try {
-    await Deno.remove($p.get(opts, "/config/pendingLoginKey"));
-  } catch {
-    // ignore if the pending file is already missing
-  }
-
-  input.auth = verifyResult.auth;
-  input.body = [
-    "# Login verified",
-    "",
-    `- Email: ${verifyResult.auth.email}`,
-    `- Challenge ID: ${verifyResult.auth.challengeId}`,
-    `- Authenticated at: ${verifyResult.auth.authenticatedAt}`,
-    `- Session cache: ${$p.get(opts, "/config/currentLoginKey")}`,
-  ].join("\n");
   ```
 
 ## Boards

@@ -138,13 +138,13 @@ thin pass-through and `storageFs` does the adaptation work.
   - [x] Atomic write via temp file + rename so concurrent readers don't see
         half-written JSON. Ref:
         [`Deno.rename`](https://docs.deno.com/api/deno/~/Deno.rename).
-- [ ] Step `Delete` — `if: /action/delete`:
-  - [ ] `Deno.remove(path)`; swallow "not found" errors.
-- [ ] Step `Sweep` (optional, runs on every `set`): walk `root` and remove files
+- [x] Step `Delete` — `if: /action/delete`:
+  - [x] `Deno.remove(path)`; swallow "not found" errors.
+- [x] Step `Sweep` (optional, runs on every `set`): walk `root` and remove files
       past their `expiresAt`. Cheap because the tree is small; replaces the old
       `Clear Old Challenge Cache` step in `magicCodeAuth`. Uses
       [`jsr:@std/fs/walk`](https://jsr.io/@std/fs/doc/~/walk).
-- [ ] Add a `dry-run set + get` test input so `pd test` exercises it.
+- [x] Add a `dry-run set + get` test input so `pd test` exercises it.
 
 #### `storageKv.md` (new)
 
@@ -169,7 +169,7 @@ public contract on `input` (`action.send|verify`, `email`, `code`, `challengeId`
 
 - [ ] Top of the pipe: if `!input.storage?.process`, throw with a clear message
       — the caller must inject a storage backend.
-- [ ] Remove `cacheDir` / `challengePath` / `clear-old-challenge-cache` logic —
+- [ ]  Remove `cacheDir` / `challengePath` / `clear-old-challenge-cache` logic —
       TTL and sweeping now belong to the storage pipe.
 - [ ] `Send Code` step:
   - [ ] Build challenge object (same shape as today: `challengeId`, `email`,
@@ -223,11 +223,18 @@ public contract on `input` (`action.send|verify`, `email`, `code`, `challengeId`
       challenges land in `.cache/pd-storage/magic-code/<id>.json`.
 - [ ] Remove the now-dead `.cache/magic-codes/` directory path from any docs.
 
-### Phase 5 — New `webApp.md` — the server pipe
+### Phase 5a — New `webApp.md` entry point (API routes)
 
-Reference: [`templates/server.ts`](templates/server.ts) for the request/response
-conventions (`input.request`, `input.requestBody`, `input.body`,
-`input.responseOptions`, optional `input.response` escape hatch).
+Set up HTTP API routes that delegate to existing pipes (`magicCodeAuth`,
+`session`, `reportBoards`, `report`). This entry point lives alongside
+`jiraCli.md` and shares no business logic — only imported pipes. Reference
+[`templates/server.ts`](templates/server.ts) for the request/response
+conventions: `input.request`, `input.requestBody` (auto-parsed at
+[`server.ts:61-83`](templates/server.ts#L61-L83)), `input.body`,
+`input.responseOptions`, and the optional `input.response` escape hatch
+([`server.ts:153-167`](templates/server.ts#L153-L167)).
+
+#### Pipe config
 
 - [ ] `json` config:
   ```json
@@ -238,38 +245,253 @@ conventions (`input.request`, `input.requestBody`, `input.body`,
     "cors": false
   }
   ```
-- [ ] Step `Bootstrap`:
-  - [ ] `import storage from "storageKv"; input.storage = storage;` — injected
-        for every sub-pipe call downstream.
-  - [ ] Pre-compute routing booleans: `input.isPost`, `input.isGet`,
-        `input.pathIsAuthSend`, etc. Pipedown `if:` / `route:` directives evaluate
-        JSON-pointer truthiness; derived booleans are the idiomatic way to
-        branch in a flat pipe.
-- [ ] Step `Load Session` (always runs):
-  - [ ] `import session from "session"; Object.assign(input, await session.process({ action: { read: true }, request: input.request, storage: input.storage }));`
-- [ ] Step `Send Magic Code` — `if: /isPost`, `if: /pathIsAuthSend`:
-  - [ ] `await magicCodeAuth.process({ action: { send: true }, email: input.requestBody.email, storage: input.storage })`.
-  - [ ] Shape `input.body = { ok: true, challengeId }` on success, `{ ok: false, reason }` on failure.
-- [ ] Step `Verify And Create Session` — `if: /isPost`, `if: /pathIsAuthVerify`:
-  - [ ] Call `magicCodeAuth` with `{ action: { verify: true }, ... }`.
-  - [ ] If `verifyResult.auth.authenticated`, call `session.process({ action: { create: true }, email, storage })`.
-  - [ ] Bubble `setCookie` into `input.responseOptions.headers["set-cookie"]`.
-- [ ] Step `Logout` — `if: /isPost`, `if: /pathIsAuthLogout`:
-  - [ ] `session.process({ action: { destroy: true }, request, storage })` and bubble up `setCookie`.
-- [ ] Step `Me` — `if: /isGet`, `if: /pathIsMe`:
-  - [ ] `input.body = input.session ? { email: input.session.email } : { email: null }`.
-- [ ] Step `Boards` — `if: /isGet`, `if: /pathIsBoards`:
-  - [ ] Unauthenticated ⇒ `input.responseOptions.status = 401; input.body = { error: "unauthorized" }`.
-  - [ ] Otherwise delegate to `reportBoards.process(...)` and pass through `{ boards }`.
-- [ ] Step `Report` — `if: /isPost`, `if: /pathIsReport`:
-  - [ ] Same 401 gate as above.
-  - [ ] Pull `boardId` from `input.requestBody`.
-  - [ ] Call `report.process({ boardId, format: { all: true } })` — same call site as
-        [`jiraCli.md:246`](jiraCli.md#L246).
-  - [ ] Respond `{ markdown: result.body }`; SPA renders client-side.
-- [ ] Step `Assemble Response`:
-  - [ ] If `setCookie` is pending, append to `responseOptions.headers`.
-  - [ ] Leave 404 to the template's built-in fallback.
+  - `static`: directory served by `serveDir` before pipe execution
+    ([`server.ts:88-102`](templates/server.ts#L88-L102)). Frontend wiring is
+    Phase 5b; the directory can be empty for now and routes will still work.
+    Ref: [`serveDir`](https://jsr.io/@std/http/doc/file-server/~/serveDir).
+  - `defaultContentType`: API surface is JSON-first; the template
+    auto-stringifies object bodies at
+    [`server.ts:188-195`](templates/server.ts#L188-L195).
+  - `parseBody`: opt-in JSON/form parsing populates `input.requestBody`.
+  - `cors`: `false` because the SPA is served from the same origin as the
+    API. Flip to `true` (or an origin string) only if a separate frontend
+    host is introduced later.
+    Ref: [MDN CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS).
+
+#### Step `Bootstrap` (always runs)
+
+- [ ] Inject the storage backend once for every downstream sub-pipe call:
+  ```ts
+  import storage from "storageKv";
+  input.storage = storage;
+  ```
+- [ ] Parse the request URL once and pre-compute method + path booleans.
+      Pipedown's `if:` directive evaluates JSON-pointer truthiness on `input`,
+      so derived booleans are the idiomatic way to branch in a flat pipe (no
+      nested conditionals, no shared regex on each step).
+  ```ts
+  // URL parsing — Ref: https://developer.mozilla.org/en-US/docs/Web/API/URL
+  input.url = new URL(input.request.url);
+  input.method = input.request.method;
+
+  const path = input.url.pathname;
+  input.isPost = input.method === "POST";
+  input.isGet  = input.method === "GET";
+  input.pathIsAuthSend   = path === "/api/auth/send";
+  input.pathIsAuthVerify = path === "/api/auth/verify";
+  input.pathIsAuthLogout = path === "/api/auth/logout";
+  input.pathIsMe         = path === "/api/me";
+  input.pathIsBoards     = path === "/api/boards";
+  input.pathIsReport     = path === "/api/report";
+  ```
+
+#### Step `Load Session` (always runs)
+
+- [ ] Read the session cookie on every request so downstream auth-gated
+      steps can branch on `input.session`. Unauthenticated requests simply
+      leave `input.session` undefined.
+  ```ts
+  import session from "session";
+  Object.assign(input, await session.process({
+    action: { read: true },
+    request: input.request,
+    storage: input.storage,
+  }));
+  ```
+
+#### Step `Send Magic Code` — `if: /isPost`, `if: /pathIsAuthSend`
+
+- [ ] Validate the email and dispatch the challenge. The shape of
+      `magicCodeAuth`'s response is the same as the CLI uses at
+      [`jiraCli.md:123`](jiraCli.md#L123).
+  ```ts
+  import magicCodeAuth from "magicCodeAuth";
+  const { email } = input.requestBody || {};
+  if (!email) {
+    input.responseOptions.status = 400;
+    input.body = { ok: false, reason: "missing-email" };
+    return;
+  }
+  const result = await magicCodeAuth.process({
+    action: { send: true },
+    email,
+    storage: input.storage,
+  });
+  if (result.error) {
+    input.body = { ok: false, reason: result.error[0]?.reason || "send-failed" };
+    return;
+  }
+  // challengeId is opaque to the SPA; it just round-trips it back on /verify.
+  input.body = {
+    ok: true,
+    challengeId: result.challengeId,
+    expiresAt: result.challengeExpiresAt,
+  };
+  ```
+
+#### Step `Verify And Create Session` — `if: /isPost`, `if: /pathIsAuthVerify`
+
+- [ ] Verify the code, then mint a session. `setCookie` is parked on
+      `input` and applied in `Assemble Response`; this keeps cookie wiring
+      in one place instead of scattered across handlers.
+  ```ts
+  import magicCodeAuth from "magicCodeAuth";
+  import session from "session";
+
+  const { email, code, challengeId } = input.requestBody || {};
+  const verify = await magicCodeAuth.process({
+    action: { verify: true },
+    email, code, challengeId,
+    storage: input.storage,
+  });
+  if (!verify.auth?.authenticated) {
+    input.responseOptions.status = 401;
+    input.body = {
+      ok: false,
+      reason: verify.error?.[0]?.reason || "verify-failed",
+      // Surface attemptsLeft so the SPA can show "2 attempts remaining".
+      attemptsLeft: verify.error?.[0]?.attemptsLeft,
+    };
+    return;
+  }
+  const created = await session.process({
+    action: { create: true },
+    email: verify.auth.email,
+    storage: input.storage,
+    mode: input.mode, // session.md uses mode.deploy to decide the Secure flag
+  });
+  input.setCookie = created.setCookie;
+  input.body = { ok: true, email: verify.auth.email };
+  ```
+
+#### Step `Logout` — `if: /isPost`, `if: /pathIsAuthLogout`
+
+- [ ] Destroy the server record and emit a `Max-Age=0` cookie so the
+      browser drops its copy. Idempotent: missing/expired cookies still
+      return `{ ok: true }`.
+  ```ts
+  import session from "session";
+  const destroyed = await session.process({
+    action: { destroy: true },
+    request: input.request,
+    storage: input.storage,
+  });
+  input.setCookie = destroyed.setCookie;
+  input.body = { ok: true };
+  ```
+
+#### Step `Me` — `if: /isGet`, `if: /pathIsMe`
+
+- [ ] No 401 here. The SPA hits `/api/me` on load to decide whether to
+      show `LoginView` or `BoardsView`; a `null` email is the expected
+      "not logged in" signal, not an error.
+  ```ts
+  input.body = input.session
+    ? { email: input.session.email }
+    : { email: null };
+  ```
+
+#### Step `Boards` — `if: /isGet`, `if: /pathIsBoards`
+
+- [ ] Auth gate, then delegate to `reportBoards`. The pipe currently uses
+      shared Jira credentials (env-resolved); per-user Jira creds are an
+      open question deferred to post-MVP (see Open Questions).
+  ```ts
+  if (!input.session) {
+    input.responseOptions.status = 401;
+    input.body = { error: "unauthorized" };
+    return;
+  }
+  import reportBoards from "reportBoards";
+  const result = await reportBoards.process(input);
+  input.body = { boards: result.boards };
+  ```
+
+#### Step `Report` — `if: /isPost`, `if: /pathIsReport`
+
+- [ ] Same 401 gate. Call shape mirrors the CLI at
+      [`jiraCli.md:269`](jiraCli.md#L269) so the CLI and webApp emit
+      byte-identical reports — useful for diffing during the migration.
+  ```ts
+  import report from "report";
+
+  if (!input.session) {
+    input.responseOptions.status = 401;
+    input.body = { error: "unauthorized" };
+    return;
+  }
+  const { boardId } = input.requestBody || {};
+  if (!boardId) {
+    input.responseOptions.status = 400;
+    input.body = { error: "missing-boardId" };
+    return;
+  }
+  // format.all = true ⇒ table + chart sections, same as `--report` flag.
+  const result = await report.process({ ...input, boardId, format: { all: true } });
+  input.body = { markdown: result.body };
+  ```
+
+#### Step `Assemble Response`
+
+- [ ] Apply any pending `Set-Cookie` header. Centralised here so handlers
+      only stash `input.setCookie` and don't poke at `responseOptions`
+      directly. 404 fallback is handled by the template at
+      [`server.ts:197-207`](templates/server.ts#L197-L207); no work needed.
+  ```ts
+  if (input.setCookie) {
+    // Ref: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie
+    input.responseOptions.headers["set-cookie"] = input.setCookie;
+  }
+  ```
+
+#### Smoke test pipe — `webAppSmoke.md` (new)
+
+A standalone pipe that imports `webApp` and exercises each route
+programmatically. No HTTP server, no browser. Validates route wiring
+before any frontend exists; runs in CI via `pd test`.
+
+- [ ] `json` config: `{}` — no app config; uses an in-memory storage stub.
+- [ ] Step `Setup`:
+  - [ ] Build a `Map`-backed `storage` stub matching the storage contract
+        (`get`/`set`/`delete` over `keyParts`). This bypasses both `storageFs`
+        and `storageKv` so the smoke test doesn't touch the filesystem or
+        require Deno KV.
+  - [ ] Drive `magicCodeAuth` with `dryRun: true` so `sendEmail` is skipped
+        and the plaintext code is returned on the response (existing
+        behaviour — see `magicCodeAuth.md` test inputs).
+- [ ] Step `Helper`:
+  - [ ] Define `input.callRoute = async (method, path, body, cookie) => { ... }`
+        that builds a `Request`, calls `webApp.process(...)`, and returns
+        `{ status, body, setCookie }`. Avoids 7 copies of the same scaffolding.
+- [ ] Step `Send`:
+  - [ ] `POST /api/auth/send` with `{ email }`. Assert `body.ok === true`,
+        capture `challengeId`.
+- [ ] Step `Verify`:
+  - [ ] Read the challenge record from the stub storage to recover the
+        plaintext code (only possible in dry-run mode).
+  - [ ] `POST /api/auth/verify` with `{ email, code, challengeId }`. Assert
+        `status === 200`, capture `set-cookie` and extract the `sid`.
+- [ ] Step `Me With Cookie`:
+  - [ ] `GET /api/me` with `Cookie: sid=<sid>`. Assert `body.email === email`.
+- [ ] Step `Boards Unauthed`:
+  - [ ] `GET /api/boards` with no cookie. Assert `status === 401`.
+- [ ] Step `Boards Authed`:
+  - [ ] `GET /api/boards` with cookie. Assert response shape `{ boards: [...] }`.
+        Stub `reportBoards` via the storage layer's existing Jira fixture
+        cache, or skip with a `BOARDS_FIXTURE` env flag if Jira creds aren't
+        present in CI.
+- [ ] Step `Logout`:
+  - [ ] `POST /api/auth/logout` with cookie. Assert `set-cookie` contains
+        `Max-Age=0` and a follow-up `GET /api/me` returns `{ email: null }`.
+- [ ] Wire into `pd test webAppSmoke.md` and the project's existing test
+      command so a CI break flags any route regression.
+
+### Phase 5b — `webApp.md` static / frontend handling
+
+_Placeholder — to be fleshed out alongside Phase 6 once the API surface in
+5a is verified by the smoke test. Will cover SPA delivery via the
+`templates/server.ts` static handler, the `index.html` shell, and any
+SPA-fallback routing needed for client-side navigation._
 
 ### Phase 6 — Frontend (`./web/`)
 

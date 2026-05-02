@@ -158,7 +158,7 @@ input.set = async (keyParts: string[], value: any, ttl?: number) => {
     const uuid = crypto.randomUUID();
     const tempFilePath = join(input.cacheDir, ...keyParts) + `-${uuid}.tmp`;
     const filePath = join(input.cacheDir, ...keyParts);
-    const expiresAt = ttl || opts.config.ttl || input.ttl;
+    const expiresAt = ttl || input.ttl || opts.config.ttl;
     const data = {
         value,
         expiresAt

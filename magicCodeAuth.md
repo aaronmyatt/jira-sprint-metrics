@@ -14,8 +14,7 @@ Set SMTP credentials in environment variables (or pass them on `input`) similarl
   "magicCode": {
     "ttlMinutes": 10,
     "length": 6,
-    "maxAttempts": 5,
-    "cacheDir": ".cache/magic-codes"
+    "maxAttempts": 5
   },
   "inputs": [
     {
@@ -27,6 +26,14 @@ Set SMTP credentials in environment variables (or pass them on `input`) similarl
   ]
 }
 ```
+
+## Storage
+
+- not: /storage
+  ```ts
+  import StorageFs from "storageFs";
+  input.storage = StorageFs;
+  ```
 
 ## Build Auth + SMTP Context
 
@@ -68,37 +75,11 @@ if (!input.email) {
   throw new Error("Missing email. Provide input.email.");
 }
 
-input.challengePath = (id) => `${input.magicCode.cacheDir}/${id}.json`;
-
 const encoder = new TextEncoder();
 input.sha256 = async (value) => {
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(value));
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
 };
-```
-
-## Clear Old Challenge Cache
-
-Delete stale challenge JSON files older than 20 minutes.
-
-```ts
-import { walk } from "jsr:@std/fs/walk";
-
-try {
-  for await (const entry of walk(input.magicCode.cacheDir, { maxDepth: 1 })) {
-    if (!entry.isFile || !entry.path.endsWith(".json")) continue;
-
-    const stats = await Deno.stat(entry.path);
-    if (!stats.mtime) continue;
-
-    const ageInMs = Date.now() - stats.mtime.getTime();
-    if (ageInMs > 20 * 60 * 1000) {
-      await Deno.remove(entry.path);
-    }
-  }
-} catch {
-  // ignore if directory is missing
-}
 ```
 
 ## Send Code
@@ -114,8 +95,6 @@ try {
   };
 
   const now = Date.now();
-
-  await Deno.mkdir(input.magicCode.cacheDir, { recursive: true });
 
   const code = buildCode(input.magicCode.length);
   const challengeId = crypto.randomUUID();
@@ -133,7 +112,13 @@ try {
       consumedAt: null,
   };
 
-  await Deno.writeTextFile(input.challengePath(challengeId), JSON.stringify(challenge, null, 2));
+  await input.storage.process({
+    keyParts: ["magic-code-challenges", challengeId+".json"],
+    action: { set: true },
+    value: challenge,
+    ttl: expiresAt,
+  });
+
   input.challengeId = challengeId;
   input.challengeExpiresAt = expiresAt;
 
@@ -153,52 +138,62 @@ Generate/send a code for `send`, or validate a challenge for `verify`.
 
 - if: /action/verify
   ```ts
-  const filePath = input.challengePath(input.challengeId);
-  const challenge = JSON.parse(await Deno.readTextFile(filePath));
+  const challenge = await input.storage.process({
+    keyParts: ["magic-code-challenges", input.challengeId+".json"],
+    action: { get: true },
+  });
 
-  if (challenge.consumedAt) {
+  if (challenge.value.consumedAt) {
     input.error = [{ action: input.action, authenticated: false, reason: "already-used" }];
     return;
   }
 
-  if (challenge.email !== input.email) {
+  if (challenge.value.email !== input.email) {
     input.error = [{ action: input.action, authenticated: false, reason: "email-mismatch" }];
     return;
   }
 
-  if (Date.now() > new Date(challenge.expiresAt).getTime()) {
+  if (Date.now() > new Date(challenge.value.expiresAt).getTime()) {
     input.error = [{ action: input.action, authenticated: false, reason: "expired" }];
     return;
   }
 
-  if (challenge.attempts >= challenge.maxAttempts) {
+  if (challenge.value.attempts >= challenge.value.maxAttempts) {
     input.error = [{ action: input.action, authenticated: false, reason: "max-attempts" }];
     return;
   }
 
   const candidateHash = await input.sha256(`${input.email}:${input.code}:${input.magicCode.pepper}:${input.challengeId}`);
-  const ok = candidateHash === challenge.codeHash;
+  const ok = candidateHash === challenge.value.codeHash;
 
   if (!ok) {
-    challenge.attempts += 1;
-    await Deno.writeTextFile(filePath, JSON.stringify(challenge, null, 2));
+    challenge.value.attempts += 1;
+    await input.storage.process({
+      keyParts: ["magic-code-challenges", input.challengeId+".json"],
+      action: { set: true },
+      value: challenge.value,
+    });
     input.error = [{
       action: input.action,
       authenticated: false,
       reason: "invalid-code",
-      attemptsLeft: Math.max(0, challenge.maxAttempts - challenge.attempts),
+      attemptsLeft: Math.max(0, challenge.value.maxAttempts - challenge.value.attempts),
     }];
     return;
   }
 
-  challenge.consumedAt = new Date().toISOString();
-  await Deno.writeTextFile(filePath, JSON.stringify(challenge, null, 2));
+  challenge.value.consumedAt = new Date().toISOString();
+  await input.storage.process({
+    keyParts: ["magic-code-challenges", input.challengeId+".json"],
+    action: { set: true },
+    value: challenge.value,
+  });
 
   input.auth = {
     action: input.action,
     authenticated: true,
     email: input.email,
     challengeId: input.challengeId,
-    authenticatedAt: challenge.consumedAt,
+    authenticatedAt: challenge.value.consumedAt,
   };
   ```
