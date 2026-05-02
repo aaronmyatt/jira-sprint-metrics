@@ -3,8 +3,6 @@
 List sprints belonging to a given Jira board. Accepts a `boardId` and an optional `state` filter (`active`, `closed`, or `future`). Returns sprint metadata including start/end dates which are essential for the metrics pipeline downstream.
 
 ```zod
-import { z } from "npm:zod";
-
 export const schema = z.object({
   boardId: z.number().default(2662),
   state: z.enum(["active", "closed", "future"]).default("active"),
@@ -26,7 +24,8 @@ export const schema = z.object({
     { "_name": "closed sprints", "boardId": 2662, "state": "closed" }
   ],
   "MAX_RESULTS_PER_PAGE": 50,
-  "BOARD_ID": 2662
+  "BOARD_ID": 2662,
+  "EXCLUDE": "13538|21261"
 }
 ```
 
@@ -59,8 +58,7 @@ while (!isLastPage) {
   const page = await input.fetchWithCache(`/rest/agile/1.0/board/${boardId}/sprint`, {
     startAt,
     maxResults: MAX_RESULTS_PER_PAGE,
-    state,
-  }, [".cache", 'boards', `${boardId}`, 'sprints']);
+  }, ['boards', `${boardId}`, 'sprints']);
 
   const values = page.values ?? [];
   input.sprints.push(...values);
@@ -72,6 +70,24 @@ while (!isLastPage) {
 
 const totalPages = Math.ceil(input.sprints.length / MAX_RESULTS_PER_PAGE) || 1;
 input.fetchResults = `Fetched ${input.sprints.length} sprints across ${totalPages} page(s).`;
+```
+
+## Exclude Sprints
+
+If `input.exclude` is provided, filter out any sprints whose names match the given regex pattern. This allows users to exclude irrelevant or anomalous sprints from the report, ensuring that the analysis focuses on the most pertinent data.
+
+```ts
+const pattern = new RegExp(input.exclude || $p.get(opts, "/config/EXCLUDE"), "i");
+input.sprints = input.sprints.filter(sprint => !pattern.test(sprint.name) && !pattern.test(String(sprint.id)));
+```
+
+## Ensure Chronological Order
+
+This gives a chronological view of how the team's performance has changed over time.
+
+```ts
+input.sprints = input.sprints
+  .toSorted((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
 ```
 
 ## Format Output
