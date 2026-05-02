@@ -1,6 +1,11 @@
 # Jira CLI
 
-Interactive CLI entrypoint for setting up Jira auth, verifying a magic-code login, selecting a board, listing sprints, and rendering sprint reports.
+CLI entrypoint for:
+- setting up Jira auth
+- verifying a magic-code login
+- "pinning" a board (to avoid passing the boardId for every command)
+- listing sprints
+- rendering sprint reports
 
 ```zod
 const JiraAuthSchema = z.object({
@@ -13,10 +18,10 @@ const JiraAuthSchema = z.object({
 
 ```json
 {
-  "jiraAuthPath": ".cache/jira-auth.json",
-  "selectedBoardPath": ".cache/selected-board.json",
-  "pendingLoginPath": ".cache/pending-login.json",
-  "currentLoginPath": ".cache/current-login.json"
+  "jiraAuthKey": "jira-auth.json",
+  "selectedBoardKey": "selected-board.json",
+  "pendingLoginKey": "pending-login.json",
+  "currentLoginKey": "current-login.json"
 }
 ```
 
@@ -27,9 +32,9 @@ input.storage = StorageFs;
 
 ## Load Config and Cache
 
-Read Jira credentials from `input`, then `.cache/jira-auth.json`, then `Deno.env`.
+Read Jira credentials from `input`, then `jira-auth.json`, then `Deno.env`.
 ```ts
-input.currentUser = await input.storage.process({ keyParts: ["current-login.json"], action: { get: true } })
+input.currentUser = await input.storage.process({ keyParts: [$p.get(opts, '/config/currentLoginKey')], action: { get: true } })
 
 if (input.currentUser.value?.email) {
   console.log(`Current authenticated user: ${input.currentUser.value.email}`);
@@ -43,7 +48,7 @@ input.jiraAuthConfig = {
     JIRA_TOKEN: $p.get(opts, '/config/JIRA_TOKEN') || Deno.env.get("JIRA_TOKEN") || "",
 }
 
-const selectedBoard = await input.storage.process({ keyParts: ["selected-board.json"], action: { get: true } });
+const selectedBoard = await input.storage.process({ keyParts: [$p.get(opts, '/config/selectedBoardKey')], action: { get: true } });
 
 input.boardId = input.boardId || selectedBoard.value?.id || $p.get(opts, "/config/BOARD_ID") || Deno.env.get("BOARD_ID");
 ```
@@ -53,7 +58,7 @@ input.boardId = input.boardId || selectedBoard.value?.id || $p.get(opts, "/confi
 - flags: /setup
   ```ts
   const existingAuth = await input.storage.process({
-    keyParts: ["jira-auth.json"],
+    keyParts: [$p.get(opts, '/config/jiraAuthKey')],
     action: { get: true },
   });
 
@@ -89,7 +94,7 @@ input.boardId = input.boardId || selectedBoard.value?.id || $p.get(opts, "/confi
   }
 
   input.storage.process({
-    keyParts: ["jira-auth.json"],
+    keyParts: [$p.get(opts, '/config/jiraAuthKey')],
     action: { set: true },
     value: jiraAuth.data,
   });
@@ -100,7 +105,7 @@ input.boardId = input.boardId || selectedBoard.value?.id || $p.get(opts, "/confi
       `- Domain: ${jiraAuth.data.JIRA_DOMAIN}`,
       `- Email: ${jiraAuth.data.JIRA_EMAIL}`,
       `- Token: ${jiraAuth.data.JIRA_TOKEN}`,
-      `- Cache file: ${jiraAuthPath}`,
+      `- Cache file: ${$p.get(opts, '/config/jiraAuthKey')}`,
   ].join("\n");
   ```
 
@@ -135,7 +140,7 @@ Two-step magic code authentication flow:
   console.log(`Magic code sent to ${email}. Challenge ID: ${sendResult.challengeId}`);
 
   await input.storage.process({
-    keyParts: ["pending-login.json"],
+    keyParts: [$p.get(opts, '/config/pendingLoginKey')],
     action: { set: true },
     value: pendingLogin,
   });
@@ -158,19 +163,19 @@ Two-step magic code authentication flow:
       `- Reason: ${verifyIssue?.reason || "verification-failed"}`,
       ...(verifyIssue?.attemptsLeft !== undefined ? [`- Attempts left: ${verifyIssue.attemptsLeft}`] : []),
       "",
-      `Pending login remains cached in ${$p.get(opts, "/config/pendingLoginPath")}.`,
+      `Pending login remains cached in ${$p.get(opts, "/config/pendingLoginKey")}.`,
     ].join("\n");
     return;
   }
   
   await input.storage.process({
-    keyParts: ["current-login.json"],
+    keyParts: [$p.get(opts, '/config/currentLoginKey')],
     action: { set: true },
     value: verifyResult.auth,
   });
 
   try {
-    await Deno.remove($p.get(opts, "/config/pendingLoginPath"));
+    await Deno.remove($p.get(opts, "/config/pendingLoginKey"));
   } catch {
     // ignore if the pending file is already missing
   }
@@ -182,7 +187,7 @@ Two-step magic code authentication flow:
     `- Email: ${verifyResult.auth.email}`,
     `- Challenge ID: ${verifyResult.auth.challengeId}`,
     `- Authenticated at: ${verifyResult.auth.authenticatedAt}`,
-    `- Session cache: ${$p.get(opts, "/config/currentLoginPath")}`,
+    `- Session cache: ${$p.get(opts, "/config/currentLoginKey")}`,
   ].join("\n");
   ```
 
@@ -192,7 +197,7 @@ Two-step magic code authentication flow:
   ```ts
   import boardsTable from "reportBoards"
   
-  const output = await boardsTable.process();
+  const output = await boardsTable.process(input);
 
   console.log([
     "# Select a board",
@@ -212,7 +217,7 @@ Two-step magic code authentication flow:
   }
 
   await input.storage.process({
-    keyParts: ["selected-board.json"],
+    keyParts: [$p.get(opts, '/config/selectedBoardKey')],
     action: { set: true },
     value: selectedBoard,
   });
@@ -230,7 +235,7 @@ Two-step magic code authentication flow:
     return;
   }
   
-  const results = await getSprints.process({ boardId: input.boardId, state: 'closed' });
+  const results = await getSprints.process(input);
 
   input.body = new formatTableAs.Markdown()
     .add("Sprint ID", "Name", "State", "Start", "End");
@@ -245,7 +250,6 @@ Two-step magic code authentication flow:
   input.body = [
     "# Sprints",
     `Board ID: ${input.boardId}`,
-    `State: closed`,
     results.fetchResults,
     results.sprints.length > 0 ? input.body.build() : "No sprints were returned for this board/state.",
   ].join("\n\n");
@@ -262,7 +266,7 @@ Two-step magic code authentication flow:
     return;
   }
 
-  const results = await getReport.process({ boardId: input.boardId, format: { all: true } });
+  const results = Object.assign(input, await getReport.process({ ...input, format: { all: true } }));
   input.body = results.body || "# Jira Sprint Report\n\nNo report sections were generated.";
   ```
 
@@ -285,8 +289,6 @@ Two-step magic code authentication flow:
     "Optional flags:",
     "",
     "- --boardId 2662 Override the board only when there is no cached selected board",
-    "- --state active|closed|future Filter the --sprints command",
-    "- --format all|tables|graphs Choose report output sections",
     "",
     "Examples:",
     "",
@@ -294,7 +296,6 @@ Two-step magic code authentication flow:
     "- pd run jiraCli.md -- --login",
     "- pd run jiraCli.md -- --boards",
     "- pd run jiraCli.md -- --sprints --state closed",
-    "- pd run jiraCli.md -- --report --format tables",
   ];
 
   input.body = helpLines.join("\n");
