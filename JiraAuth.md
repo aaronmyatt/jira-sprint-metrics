@@ -87,12 +87,19 @@ async function fetchWithCache(endpoint, params = {}, cacheParts = ["jira"]) {
   });
   
   const data = await response.json();
+
+
   
   input.storage.process({
     keyParts: [...cacheParts, endpointKey, paramsKey ? paramsKey : "", dayKey+".json"],
     action: { set: true },
     value: data,
-  });
+  }).then(() => {
+    console.log(`Cached response for ${endpoint} with params ${JSON.stringify(params)}`);
+  }).catch((err) => {
+    console.error(`Failed to cache response for ${endpoint} with params ${JSON.stringify(params)}:`, err);
+  })
+  ;
   return data; 
 }
 
