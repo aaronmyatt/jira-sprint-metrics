@@ -5,8 +5,6 @@ List all Jira boards accessible to the authenticated user. This is the entry poi
 The pipeline authenticates against the Jira Cloud REST API using credentials stored in `opts.config` (sourced from `config.json`). It paginates through all results and returns a flat list of boards with their IDs and names.
 
 ```zod
-import { z } from "npm:zod";
-
 export const schema = z.object({
   boards: z.array(z.object({
     id: z.number(),
@@ -47,7 +45,7 @@ while (!isLastPage) {
   const page = await input.fetchWithCache(`/rest/agile/1.0/board`, {
     startAt,
     maxResults: MAX_RESULTS_PER_PAGE,
-  }, [".cache", "boards"]);
+  }, ["boards"]);
 
   const values = page.values ?? [];
   input.boards.push(...values);
