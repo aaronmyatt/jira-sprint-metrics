@@ -23,17 +23,6 @@ const GraphDefs = z.object({
 });
 ```
 
-## Get Reportable Data
-
-Delegate all data gathering + aggregation to `sprintsOverview`. This keeps the
-presenter stateless with respect to caching, filtering, and cross-sprint math —
-its only job is to turn numbers into pictures.
-
-```ts
-import sprintsOverview from "sprintsOverview";
-Object.assign(input, await sprintsOverview.process());
-```
-
 ## Present Grand Totals
 
 Render the overall completion vs. commitment picture as a horizontal bar chart.
@@ -46,7 +35,7 @@ sub-character resolution via the "eighths" family (`▏▎▍▌▋▊▉█`), 
 smoother than ASCII `#`/`=`.
 Ref: https://en.wikipedia.org/wiki/Block_Elements
 
-- if: /grandTotals
+- if: /totals
   ```ts
   /**
    * Render a single horizontal bar line.
@@ -74,7 +63,7 @@ Ref: https://en.wikipedia.org/wiki/Block_Elements
     return `${label.padStart(14)} │ ${padded} ${value}`;
   };
 
-  const t = input.grandTotals;
+  const t = input.totals;
 
   // Two conceptually distinct bar groups joined into a single code block:
   //   1. Completion breakdown  — how many tickets got done at all
@@ -112,8 +101,8 @@ import asciichart from "npm:asciichart@1.5.25";
 // Sprints are already sorted chronologically by `sprintsOverview`, so we can
 // just map to the two series we want. `asciichart.plot` expects arrays of
 // numbers — one array per series.
-const completionSeries = input.cachedSprints.map(s => s.totals.completionPct);
-const commitmentSeries = input.cachedSprints.map(s => s.totals.commitmentPct);
+const completionSeries = input.sprints.map(s => s.totals.completionPct);
+const commitmentSeries = input.sprints.map(s => s.totals.commitmentPct);
 
 // `height` controls the number of rows in the plot. 10 rows gives us enough
 // vertical resolution to see a 5–10% swing without eating the terminal.
@@ -130,7 +119,7 @@ const plot = asciichart.plot([completionSeries, commitmentSeries], {
 const legend = [
   "Legend:  line 1 = Completion %   line 2 = Commitment %",
   "Sprints (left → right):",
-  ...input.cachedSprints.map((s, i) => `  ${i + 1}. ${s.name}`),
+  ...input.sprints.map((s, i) => `  ${i + 1}. ${s.name}`),
 ].join("\n");
 
 input.sprintTrendsGraph = [
@@ -211,7 +200,7 @@ const bar = (label, value, max, width = 30) => {
 // Map<sprintName, asciiChartString> — mirrors the shape of
 // `developerSprintTables` in reportTable.md so the two presenters are
 // interchangeable from the caller's perspective.
-input.developerSprintGraphs = input.cachedSprints
+input.developerSprintGraphs = input.sprints
   .filter(sprint => sprint.developerSummaries && sprint.developerSummaries.length > 0)
   .reduce((acc, sprint) => {
     const rows = sprint.developerSummaries
@@ -245,7 +234,7 @@ The assembled report body, when printed top-to-bottom, reads as:
 2. **Sprint Trends Graph** — completion & commitment % over time as a line chart
 3. **Developer Leaderboard Graph** — per-developer bars, ranked
 4. **Developer Sprint Graphs** — per-sprint per-developer breakdown
-
+5. **Developer Trends Graph** — one sparkline per developer, showing each developer's completion % over time (not implemented yet)
 ```ts
 input = GraphDefs.parse(input);
 ```

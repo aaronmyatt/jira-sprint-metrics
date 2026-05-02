@@ -4,13 +4,24 @@ Aggregate metrics across multiple sprints to show trends and overall developer p
 
 This pipeline does **not** call the Jira API — it relies entirely on locally cached, or precomputed data passed via the `input` object.
 
+## Get Reportable Data
+
+Delegate all data gathering + aggregation to `sprintsOverview`. This keeps the
+presenter stateless with respect to caching, filtering, and cross-sprint math —
+its only job is to turn numbers into pictures.
+
+```ts
+import sprintsOverview from "sprintsOverview";
+Object.assign(input, await sprintsOverview.process(input));
+```
+
 ## Tables
 
 - if: /format/tables
 - if: /format/all
   ```ts
   import reportTable from "reportTable";
-  Object.assign(input, await reportTable.process());
+  Object.assign(input, await reportTable.process(input));
   ```
 
 ## Graphs
@@ -19,7 +30,7 @@ This pipeline does **not** call the Jira API — it relies entirely on locally c
 - if: /format/all
   ```ts
   import reportGraphs from "reportChartli";
-  Object.assign(input, await reportGraphs.process());
+  Object.assign(input, await reportGraphs.process(input));
   ```
 
 ## Assemble Body

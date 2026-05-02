@@ -15,18 +15,11 @@ const TableDefs = z.object({
 });
 ```
 
-## Get Reportable Data
-
-```ts
-import sprintsOverview from "sprintsOverview";
-Object.assign(input, await sprintsOverview.process());
-```
-
 ## Present Totals
 
-If `input.grandTotals` is available, it can be included in the final report to show the overall completion and commitment percentages across all sprints, giving a high-level summary of team performance.
+If `input.totals` is available, it can be included in the final report to show the overall completion and commitment percentages across all sprints, giving a high-level summary of team performance.
 
-- if: /grandTotals
+- if: /totals
   ```ts
   import formatTableAs from "jsr:@dep/table";
   
@@ -36,26 +29,26 @@ If `input.grandTotals` is available, it can be included in the final report to s
       "Total Tickets", "Done", "Incomplete", "Completion %", 
       "Met Due Date", "Acceptable", "Late", "Commitment %")
     .add(
-      input.grandTotals.total, 
-      input.grandTotals.done, 
-      input.grandTotals.incomplete, 
-      `${input.grandTotals.completionPct.toFixed(1)}%`, 
-      input.grandTotals.met, 
-      input.grandTotals.acceptable, 
-      input.grandTotals.late, 
-      `${input.grandTotals.commitmentPct.toFixed(1)}%`)
+      input.totals.total, 
+      input.totals.done, 
+      input.totals.incomplete, 
+      `${input.totals.completionPct.toFixed(1)}%`, 
+      input.totals.met, 
+      input.totals.acceptable, 
+      input.totals.late, 
+      `${input.totals.commitmentPct.toFixed(1)}%`)
     .build();
   ```
 
 ## Present Sprint Trends
 
-Format `input.cachedSprints` into a readable table showing each sprint's name, end date, completion percentage, and commitment percentage. This allows stakeholders to quickly see how the team's performance has evolved over time and identify any trends or patterns.
+Format `input.sprints` into a readable table showing each sprint's name, end date, completion percentage, and commitment percentage. This allows stakeholders to quickly see how the team's performance has evolved over time and identify any trends or patterns.
 
 ```ts
 input.sprintTrendsTable = new formatTableAs.Markdown()
   .add("Sprint Name", "End Date", "Completion %", "Commitment %");
 
-input.cachedSprints.forEach(sprint => input.sprintTrendsTable.add(
+input.sprints.forEach(sprint => input.sprintTrendsTable.add(
     sprint.name,
     sprint.endDate || "On going or future sprint",
     `${sprint.totals.completionPct.toFixed(1)}%`,
@@ -95,7 +88,7 @@ input.leaderboardTable = input.leaderboardTable.build();
 Optionally, for each developer, create a table showing their performance in each sprint (tickets completed, completion %, commitment %). This provides a more granular view of individual performance over time.
 
 ```ts
-input.developerSprintTables = input.cachedSprints
+input.developerSprintTables = input.sprints
   .filter(sprint => sprint.developerSummaries && sprint.developerSummaries.length > 0)
   .reduce((acc, sprint) => {
     const sprintTable = sprint.developerSummaries.reduce((tableAcc, devSummary) => {

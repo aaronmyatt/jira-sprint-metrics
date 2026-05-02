@@ -29,17 +29,6 @@ const GraphDefs = z.object({
 });
 ```
 
-## Get Reportable Data
-
-Delegate all data gathering + aggregation to `sprintsOverview`. This keeps the
-presenter stateless with respect to caching, filtering, and cross-sprint math —
-its only job is to turn numbers into pictures.
-
-```ts
-import sprintsOverview from "sprintsOverview";
-Object.assign(input, await sprintsOverview.process());
-```
-
 ## Present Grand Totals
 
 Render the overall completion vs. commitment picture as a horizontal bar chart.
@@ -55,13 +44,13 @@ consume any object that matches the shape, since each renderer is just a pure
 function over `{ normalized, options }`.
 Ref: https://jsr.io/@atm/chartli/doc/~/renderBars
 
-- if: /grandTotals
+- if: /totals
   ```ts
   // jsr: imports work natively in Deno — no install step required.
   // Ref: https://docs.deno.com/runtime/manual/basics/modules/#jsr
   import { renderBars } from "jsr:@atm/chartli@1.0.0";
 
-  const t = input.grandTotals;
+  const t = input.totals;
 
   // Two conceptually distinct bar groups, rendered as one chart each:
   //   1. Completion breakdown  — how many tickets got done at all
@@ -142,7 +131,7 @@ import { renderAscii } from "jsr:@atm/chartli@1.0.0";
 // Sprints are already sorted chronologically by `sprintsOverview`, so we can
 // just zip them into rows. chartli expects rows × cols where each row is one
 // x-position and each col is one series.
-const sprints = input.cachedSprints;
+const sprints = input.sprints;
 const raw = sprints.map(s => [s.totals.completionPct, s.totals.commitmentPct]);
 
 // Anchor both series to the same [0, 100] scale by hand. If we used
@@ -265,7 +254,7 @@ lengths at a glance rather than scanning columns of numbers.
 // Map<sprintName, chartString> — mirrors the shape of `developerSprintTables`
 // in reportTable.md so the two presenters are interchangeable from the
 // caller's perspective.
-input.developerSprintGraphs = input.cachedSprints
+input.developerSprintGraphs = input.sprints
   .filter(sprint => sprint.developerSummaries && sprint.developerSummaries.length > 0)
   .reduce((acc, sprint) => {
     const rows = sprint.developerSummaries
@@ -333,7 +322,7 @@ const orderedDevs = [...input.compileLeaderboard.values()]
 // as "0%" is a small lie, but it keeps every sparkline the same length so
 // they line up under each other — a gap-based representation would break
 // alignment and make the chart much harder to scan.
-const sprintRows = input.cachedSprints.map(sprint => {
+const sprintRows = input.sprints.map(sprint => {
   const byDev = new Map(
     (sprint.developerSummaries ?? []).map(d => [
       d.assignee,
@@ -372,7 +361,7 @@ input.developerTrendsGraph = [
   // Footer maps the leftmost-to-rightmost spark cells back to actual sprint
   // names, mirroring the legend pattern used in Sprint Trends above.
   "Sprints (left → right):",
-  ...input.cachedSprints.map((s, i) => `  ${i + 1}. ${s.name}`),
+  ...input.sprints.map((s, i) => `  ${i + 1}. ${s.name}`),
 ].join("\n");
 ```
 
