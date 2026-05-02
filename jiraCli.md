@@ -20,52 +20,51 @@ const JiraAuthSchema = z.object({
 }
 ```
 
+```ts
+import StorageFs from "storageFs";
+input.storage = StorageFs;
+```
+
 ## Load Config and Cache
 
 Read Jira credentials from `input`, then `.cache/jira-auth.json`, then `Deno.env`.
 ```ts
-import { existsSync } from "jsr:@std/fs/exists";
+input.currentUser = await input.storage.process({ keyParts: ["current-login.json"], action: { get: true } })
 
-input.currentUser = await Deno.readTextFile($p.get(opts, "/config/currentLoginPath"))
-  .then(raw => JSON.parse(raw))
-  .catch(() => null);
-
-if (input.currentUser?.email) {
-  console.log(`Current authenticated user: ${input.currentUser.email}`);
+if (input.currentUser.value?.email) {
+  console.log(`Current authenticated user: ${input.currentUser.value.email}`);
 } else {
   console.log("No authenticated user found in cache.");
 }
 
-input.jiraAuthConfig = await Deno.readTextFile($p.get(opts, "/config/jiraAuthPath"))
-  .then(raw => JSON.parse(raw))
-  .catch(() => ({
-     JIRA_DOMAIN: $p.get(opts, '/config/JIRA_DOMAIN') || Deno.env.get("JIRA_DOMAIN") || "",
-     JIRA_EMAIL: $p.get(opts, '/config/JIRA_EMAIL') || Deno.env.get("JIRA_EMAIL") || "",
-     JIRA_TOKEN: $p.get(opts, '/config/JIRA_TOKEN') || Deno.env.get("JIRA_TOKEN") || "",
-  }));
+input.jiraAuthConfig = {
+    JIRA_DOMAIN: $p.get(opts, '/config/JIRA_DOMAIN') || Deno.env.get("JIRA_DOMAIN") || "",
+    JIRA_EMAIL: $p.get(opts, '/config/JIRA_EMAIL') || Deno.env.get("JIRA_EMAIL") || "",
+    JIRA_TOKEN: $p.get(opts, '/config/JIRA_TOKEN') || Deno.env.get("JIRA_TOKEN") || "",
+}
 
-input.selectedBoard = await Deno.readTextFile($p.get(opts, "/config/selectedBoardPath"))
-  .then(raw => JSON.parse(raw))
-  .catch(() => null);
+const selectedBoard = await input.storage.process({ keyParts: ["selected-board.json"], action: { get: true } });
 
-input.boardId = input.boardId || input.selectedBoard?.id || $p.get(opts, "/config/BOARD_ID") || Deno.env.get("BOARD_ID");
+input.boardId = input.boardId || selectedBoard.value?.id || $p.get(opts, "/config/BOARD_ID") || Deno.env.get("BOARD_ID");
 ```
 
 ## Setup
 
 - flags: /setup
   ```ts
-  const jiraAuthPath = $p.get(opts, "/config/jiraAuthPath");
-  if (existsSync(jiraAuthPath)) {
-    const raw = await Deno.readTextFile(jiraAuthPath);
-    const existingAuth = JSON.parse(raw);
+  const existingAuth = await input.storage.process({
+    keyParts: ["jira-auth.json"],
+    action: { get: true },
+  });
+
+  if (existingAuth.value) {
     input.body = [
       "# Jira CLI is already set up",
       "",
       "Existing credentials found in cache:",
-      `- Domain: ${existingAuth.JIRA_DOMAIN}`,
-      `- Email: ${existingAuth.JIRA_EMAIL}`,
-      `- Token: ${existingAuth.JIRA_TOKEN}`,
+      `- Domain: ${existingAuth.value.JIRA_DOMAIN}`,
+      `- Email: ${existingAuth.value.JIRA_EMAIL}`,
+      `- Token: ${existingAuth.value.JIRA_TOKEN}`,
       "",
     ].join("\n");
     return;
@@ -89,8 +88,12 @@ input.boardId = input.boardId || input.selectedBoard?.id || $p.get(opts, "/confi
     return;
   }
 
-  const writeRaw = JSON.stringify(jiraAuth.data, null, 2);
-  await Deno.writeTextFile(jiraAuthPath, writeRaw, { create: true });
+  input.storage.process({
+    keyParts: ["jira-auth.json"],
+    action: { set: true },
+    value: jiraAuth.data,
+  });
+
   input.body = [
       "# Jira setup saved",
       "",
@@ -131,7 +134,12 @@ Two-step magic code authentication flow:
 
   console.log(`Magic code sent to ${email}. Challenge ID: ${sendResult.challengeId}`);
 
-  await Deno.writeTextFile($p.get(opts, "/config/pendingLoginPath"), JSON.stringify(pendingLogin, null, 2), { create: true });
+  await input.storage.process({
+    keyParts: ["pending-login.json"],
+    action: { set: true },
+    value: pendingLogin,
+  });
+  
   const code = prompt("Verification code") || "";
   const verifyResult = await magicCodeAuth.process({
     email,
@@ -154,8 +162,12 @@ Two-step magic code authentication flow:
     ].join("\n");
     return;
   }
-
-  await Deno.writeTextFile($p.get(opts, "/config/currentLoginPath"), JSON.stringify(verifyResult.auth, null, 2), { create: true });
+  
+  await input.storage.process({
+    keyParts: ["current-login.json"],
+    action: { set: true },
+    value: verifyResult.auth,
+  });
 
   try {
     await Deno.remove($p.get(opts, "/config/pendingLoginPath"));
@@ -190,7 +202,7 @@ Two-step magic code authentication flow:
     "",
     output.body,
     "",
-    `Current selected board ID: ${input.selectedBoard?.id || "none"}`,
+    `Current selected board ID: ${input.boardId || "none"}`,
   ].join("\n"));
   const selectedBoardId = prompt("Board ID: ");
   const selectedBoard = output.boards.find(board => String(board.id) === String(selectedBoardId));
@@ -199,8 +211,11 @@ Two-step magic code authentication flow:
     return;
   }
 
-  const writeRaw = JSON.stringify(selectedBoard, null, 2);
-  await Deno.writeTextFile($p.get(opts, "/config/selectedBoardPath"), writeRaw, { create: true });
+  await input.storage.process({
+    keyParts: ["selected-board.json"],
+    action: { set: true },
+    value: selectedBoard,
+  });
   ```
 
 ## Sprints
