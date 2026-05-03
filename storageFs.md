@@ -11,7 +11,7 @@ file system storage in the `config.json` file.
 ```json
 {
     "root": ".cache/",
-    "ttl": ""
+    "ttl": "PT168H"
 }
 ```
 
@@ -23,9 +23,7 @@ export const schema = z.object({
         
         // Add 7 days (as 168 hours, since Instant only accepts time units)
         // Ref: https://tc39.es/proposal-temporal/#sec-temporal-duration-from
-        const expiresAt = now.add({
-            hours: 7 * 24,  // 7 days = 168 hours
-        });
+        const expiresAt = now.add('PT168H');
         return expiresAt.toString();
     }),
     keyParts: z.array(z.string()),
@@ -87,7 +85,7 @@ input.get = async (keyParts: string[]) => {
             return {
                 key: filePath,
                 value: undefined,
-                versionstamp: undefined,
+                versionstamp: null,
             }; // Key not found
         }
         throw error; // Rethrow other errors

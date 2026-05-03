@@ -94,11 +94,11 @@ input.sha256 = async (value) => {
     return Array.from(bytes).map((b) => digits[b % 10]).join("");
   };
 
-  const now = Date.now();
+  const now = Temporal.Now.instant();
 
   const code = buildCode(input.magicCode.length);
   const challengeId = crypto.randomUUID();
-  const expiresAt = new Date(now + input.magicCode.ttlMinutes * 60 * 1000).toISOString();
+  const expiresAt = now.add({ minutes: input.magicCode.ttlMinutes }).toString();
   const codeHash = await input.sha256(`${input.email}:${code}:${input.magicCode.pepper}:${challengeId}`);
 
   const challenge = {
@@ -108,7 +108,7 @@ input.sha256 = async (value) => {
       expiresAt,
       attempts: 0,
       maxAttempts: input.magicCode.maxAttempts,
-      createdAt: new Date(now).toISOString(),
+      createdAt: now.toString(),
       consumedAt: null,
   };
 

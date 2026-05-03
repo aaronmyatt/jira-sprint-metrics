@@ -139,7 +139,7 @@ Two-step magic code authentication flow:
   const pendingLogin = {
     email,
     challengeId: sendResult.challengeId,
-    createdAt: new Date().toISOString(),
+    createdAt: Temporal.Now.instant().toString(),
   };
 
   console.log(`Magic code sent to ${email}. Challenge ID: ${sendResult.challengeId}`);
@@ -148,7 +148,7 @@ Two-step magic code authentication flow:
     keyParts: [$p.get(opts, '/config/pendingLoginKey')],
     action: { set: true },
     value: pendingLogin,
-    ttl: Number(Deno.env.get("MAGIC_CODE_TTL_MINUTES")) * 60 * 1000,
+    ttl: `PT${Deno.env.get("MAGIC_CODE_TTL_MINUTES")}M`,
   });
   
   while (true) {
