@@ -148,17 +148,17 @@ thin pass-through and `storageFs` does the adaptation work.
 
 #### `storageKv.md` (new)
 
-- [ ] `json` config: `{ "kvPath": null }` — `null` ⇒ hosted KV on Deploy,
+- [x] `json` config: `{ "kvPath": null }` — `null` ⇒ hosted KV on Deploy,
       explicit path ⇒ local SQLite file when needed.
-- [ ] Step `Open`: `input._kv = globalThis.__sharedKv ??= await Deno.openKv(kvPath)`
+- [x] Step `Open`: `input._kv = globalThis.__sharedKv ??= await Deno.openKv(kvPath)`
       so repeated calls in the same process reuse the same connection (open is
       cheap but caching avoids churn).
-- [ ] Step `Get` — `if: /action/get`:
-  - [ ] `input.result = await kv.get(input.key)` — already `{value, versionstamp}`.
-- [ ] Step `Set` — `if: /action/set`:
-  - [ ] `await kv.set(input.key, input.value, input.ttlMs ? { expireIn: input.ttlMs } : undefined)`.
-- [ ] Step `Delete` — `if: /action/delete`:
-  - [ ] `await kv.delete(input.key)`.
+- [x] Step `Get` — `if: /action/get`:
+  - [x] `input.result = await kv.get(input.key)` — already `{value, versionstamp}`.
+- [x] Step `Set` — `if: /action/set`:
+  - [x] `await kv.set(input.key, input.value, input.ttlMs ? { expireIn: input.ttlMs } : undefined)`.
+- [x] Step `Delete` — `if: /action/delete`:
+  - [x] `await kv.delete(input.key)`.
 - [ ] Test input: a round-trip `set` with `ttlMs: 50`, wait 100 ms, confirm `get` returns `null`.
 
 ### Phase 2 — Rewrite `magicCodeAuth.md` around `input.storage`
@@ -167,28 +167,28 @@ Reference: current file at [`magicCodeAuth.md`](magicCodeAuth.md). Keep the same
 public contract on `input` (`action.send|verify`, `email`, `code`, `challengeId`,
 `auth`, `error`) so `jiraCli.md` needs only a one-line change.
 
-- [ ] Top of the pipe: if `!input.storage?.process`, throw with a clear message
+- [x] Top of the pipe: if `!input.storage?.process`, throw with a clear message
       — the caller must inject a storage backend.
-- [ ]  Remove `cacheDir` / `challengePath` / `clear-old-challenge-cache` logic —
+- [x]  Remove `cacheDir` / `challengePath` / `clear-old-challenge-cache` logic —
       TTL and sweeping now belong to the storage pipe.
-- [ ] `Send Code` step:
-  - [ ] Build challenge object (same shape as today: `challengeId`, `email`,
+- [x] `Send Code` step:
+  - [x] Build challenge object (same shape as today: `challengeId`, `email`,
         `codeHash`, `expiresAt`, `attempts`, `maxAttempts`, `createdAt`, `consumedAt`).
-  - [ ] `await input.storage.process({ action: { set: true }, key: ["magic-code", challengeId], value: challenge, ttlMs })`.
-  - [ ] Expose `challengeId` + `challengeExpiresAt` on `input` exactly as today.
-  - [ ] Keep the `dryRun` short-circuit and `sendEmail.process(...)` call unchanged.
-- [ ] `Verify Magic Code` step:
-  - [ ] `const { result } = await input.storage.process({ action: { get: true }, key: ["magic-code", input.challengeId] })`.
-  - [ ] Treat `result.value === null` as `reason: "expired"` (KV already returns
+  - [x] `await input.storage.process({ action: { set: true }, key: ["magic-code", challengeId], value: challenge, ttlMs })`.
+  - [x] Expose `challengeId` + `challengeExpiresAt` on `input` exactly as today.
+  - [x] Keep the `dryRun` short-circuit and `sendEmail.process(...)` call unchanged.
+- [x] `Verify Magic Code` step:
+  - [x] `const { result } = await input.storage.process({ action: { get: true }, key: ["magic-code", input.challengeId] })`.
+  - [x] Treat `result.value === null` as `reason: "expired"` (KV already returns
         that after TTL; `storageFs` mimics via `expiresAt`).
-  - [ ] On wrong code, `set` the updated record back (preserve `expiresAt` by
+  - [x] On wrong code, `set` the updated record back (preserve `expiresAt` by
         passing the remaining TTL — KV needs a fresh `expireIn` each write, and
         FS recomputes).
-  - [ ] On success, `set` with `consumedAt` populated.
-  - [ ] Produce the same `input.auth` shape as today.
-- [ ] Trim the `json` config block — remove `cacheDir`; leave `ttlMinutes`,
+  - [x] On success, `set` with `consumedAt` populated.
+  - [x] Produce the same `input.auth` shape as today.
+- [x] Trim the `json` config block — remove `cacheDir`; leave `ttlMinutes`,
       `length`, `maxAttempts`, `pepper`.
-- [ ] Update test `inputs[]` to include a `storage` stub (in-memory Map) so the
+- [x] Update test `inputs[]` to include a `storage` stub (in-memory Map) so the
       dry-run test doesn't touch the real filesystem or KV.
 
 ### Phase 3 — New `session.md` helper (also DI-based)
