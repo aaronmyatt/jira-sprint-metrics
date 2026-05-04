@@ -76,19 +76,17 @@ input.get = async (keyParts: string[]) => {
     try {
         const data = await input.readOrRaise(filePath);
         return {
-            key: filePath,
+            key: keyParts,
             value: data.value,
             versionstamp: data.expiresAt, // ISO string from Temporal.Instant
         }
     } catch (error) {
-        if (error instanceof Deno.errors.NotFound) {
-            return {
-                key: filePath,
-                value: undefined,
-                versionstamp: null,
-            }; // Key not found
-        }
-        throw error; // Rethrow other errors
+        console.error(`Error reading cache file ${filePath}:`, error);
+        return {
+            key: keyParts,
+            value: undefined,
+            versionstamp: null,
+        };
     }
 };
 ```
@@ -168,6 +166,7 @@ input.set = async (keyParts: string[], value: any, ttl?: number) => {
     Deno.remove(tempFilePath).catch(() => {}); // Clean up temp file if it still exists
     return {
         versionstamp: expiresAt,
+        ok: true,
     }
 }
 ```

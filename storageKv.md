@@ -1,10 +1,11 @@
-## Storage KV Injectable
+# Storage KV Injectable
 
 In preparation for deployment to Deno Deploy, we will implement a `Deno.KV` storage pipeline as an injectable. This will allow us to abstract away storage details and easily swap out our file system storage for a key-value store implementation. It should adhear to the same interface as our file system storage to minimize changes needed in the rest of our codebase.
 
+> ISO 8601 duration format for 7 days
 ```json
 {
-  "ttl": "PT168H" // ISO 8601 duration format for 7 days
+  "ttl": "PT168H"
 }
 ```
 
@@ -12,16 +13,17 @@ In preparation for deployment to Deno Deploy, we will implement a `Deno.KV` stor
 
 https://kapeli.com/dash_share?path=https://docs.deno.com/deploy/kv/
 
-- not: $kv
+- not: /$kv
   ```ts
-  input.$kv = await Deno.openKv().catch(() => {
-      input.body = [
-          "# Deno.KV not available",
-          "",
-          "The Deno.KV API is not available in this environment. Please ensure you are running in an environment that supports Deno.KV, such as Deno Deploy.",
-      ].join("\n");
-      throw new Error("Deno.KV not available");
-      });
+  input.$kv = await Deno.openKv()
+    .catch(() => {
+        input.body = [
+            "# Deno.KV not available",
+            "",
+            "The Deno.KV API is not available in this environment. Please ensure you are running in an environment that supports Deno.KV, such as Deno Deploy.",
+        ].join("\n");
+        throw new Error("Deno.KV not available");
+    });
   ```
 
 ## Get Item
@@ -48,7 +50,8 @@ input.set = async (keyParts: string[], value: any, ttl?: string) => {
     const now = Temporal.Now.instant();
     const ttlDuration = Temporal.Duration.from(ttl || input.ttl || $p.get(opts, "/config/ttl"));
     const expiresAt = now.add(ttlDuration);
-    await input.$kv.set(keyParts, Object.assign({ expiresAt: expiresAt.toString() }, value), { expiresIn: ttlDuration.total("milliseconds") });
+    const result = await input.$kv.set(keyParts, Object.assign({ expiresAt: expiresAt.toString() }, value), { expiresIn: ttlDuration.total("milliseconds") });
+    return { keyParts, value, expiresAt: expiresAt.toString(), ...result };
 };
 ```
 
@@ -59,6 +62,7 @@ input.delete = async (keyParts: string[]) => {
     await input.$kv.delete(keyParts);
     return keyParts;
 };
+```
 
 ## Handle Get
 
