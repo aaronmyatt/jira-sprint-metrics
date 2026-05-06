@@ -84,7 +84,7 @@ input.get = async (keyParts: string[]) => {
         console.error(`Error reading cache file ${filePath}:`, error);
         return {
             key: keyParts,
-            value: undefined,
+            value: null,
             versionstamp: null,
         };
     }

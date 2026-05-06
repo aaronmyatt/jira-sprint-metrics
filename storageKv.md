@@ -36,7 +36,7 @@ input.get = async (keyParts: string[]) => {
         const expiry = Temporal.Instant.from(result.value.expiresAt);
         if (Temporal.Instant.compare(now, expiry) > 0) {
             await input.$kv.delete(keyParts); // Clean up expired entry
-            result.value = undefined; // Treat as not found since it's expired
+            result.value = null; // Treat as not found since it's expired
         }
     }
     return result;
