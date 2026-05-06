@@ -211,9 +211,16 @@ async function writeTrace(
   const traceDir = `${home}/.pipedown/traces/${projectName}/${pipeName}`;
   await Deno.mkdir(traceDir, { recursive: true });
 
+  // ── Timestamp strategy ──
+  // Use Unix epoch milliseconds for the filename — this sorts correctly as
+  // both a number and a string, and avoids the colon/dot mangling that the
+  // old ISO-based filenames required.
+  // The `timestamp` property inside the JSON stays as a proper ISO-8601
+  // string for human readability.
+  // Ref: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/getTime
   const now = new Date();
   const timestamp = now.toISOString();
-  const fileTimestamp = timestamp.replace(/[:.]/g, "-");
+  const fileTimestamp = String(now.getTime());
 
   const trace = {
     pipeName,
@@ -235,7 +242,7 @@ async function writeTrace(
 // --- Main execution ---
 
 const flags = parseArgs(Deno.args);
-const input = JSON.parse(flags.input || flags.i || "{}");
+const input = JSON.parse(flags.input || "{}");
 $p.set(input, "/flags", flags);
 $p.set(input, "/mode/cli", true);
 $p.set(input, "/mode/trace", true);
@@ -247,7 +254,7 @@ const pipelineDuration =
   Math.round((performance.now() - pipelineStart) * 100) / 100;
 
 await writeTrace(
-  rawPipe.name,
+  rawPipe.fileName || rawPipe.name || "unknown-pipe-" + Date.now(),
   traceLog,
   originalInput,
   output,
@@ -256,9 +263,25 @@ await writeTrace(
   sanitizeOpts,
 );
 
+// Surface accumulated errors prominently to stderr and exit non-zero.
+// Without this, errors get buried inside Deno's truncated console.log
+// of the output object — which is especially confusing when a sub-pipe
+// throws and the user only sees the entry pipe's input dump. The
+// captured `err.stack` includes correctly source-mapped markdown lines
+// for the entry pipe and any sub-pipes it invokes.
+const errors = ((output as { errors?: Array<{
+  stack?: string;
+  message?: string;
+}> }).errors) || [];
+
+for (const err of errors) {
+  console.error(err.stack || err.message || String(err));
+  console.error("");
+}
+
 if (flags.json || flags.j) {
   console.log(JSON.stringify(output));
 } else {
-  console.log(output);
 }
-Deno.exit(0);
+
+Deno.exit(errors.length > 0 ? 1 : 0);
