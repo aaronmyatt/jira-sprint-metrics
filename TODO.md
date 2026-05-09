@@ -193,24 +193,32 @@ public contract on `input` (`action.send|verify`, `email`, `code`, `challengeId`
 
 ### Phase 3 — New `session.md` helper (also DI-based)
 
-- [ ] Contract mirrors `magicCodeAuth`: requires `input.storage`, ignores where
+- [x] Contract mirrors `magicCodeAuth`: requires `input.storage`, ignores where
       it points.
-- [ ] `json` config: `sessionTtlDays` (default 7), `cookieName` (default `sid`).
-- [ ] Three actions gated by `if: /action/create|read|destroy`.
-- [ ] `create`:
-  - [ ] `sid = crypto.randomUUID()`.
-  - [ ] `storage.set(["session", sid], { email, createdAt }, ttlMs)`.
-  - [ ] Produce `input.setCookie` with the full `Set-Cookie` value:
-        `sid=<sid>; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=<s>`.
-        Set `Secure` off only when `input.mode?.deploy` is false AND the request
-        origin is `http://localhost`. Ref:
-        [MDN Set-Cookie](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie).
-- [ ] `read`:
-  - [ ] Parse `Cookie:` header from `input.request.headers`.
-  - [ ] `storage.get(["session", sid])` — populate `input.session = { email, sid }` or leave absent.
-- [ ] `destroy`:
-  - [ ] `storage.delete(["session", sid])`.
-  - [ ] Produce `input.setCookie` with `Max-Age=0` to clear the browser copy.
+- [x] `json` config: `sessionTtlDays` (default 7), `cookieName` (default `sid`).
+
+The session pipe operates in different modes depending on the shape of `input.session`:
+
+1. No `input.session` ⇒ `create` mode: generate a new session for the given email.
+   1. Call the session pipe explicitly after a successful login
+2. if `input.session.sid` / `input.request.headers.Cookie` ⇒ `read` mode: parse the cookie, look up the session, and populate `input.session.email`.
+   1. Call the session pipe on every request so downstream pipes can branch on `input.session`.
+3. if `input.session === null` ⇒ `destroy` mode: delete the session record and emit a cookie to clear the browser copy.
+   1. Call exit/response call to the session pipe clears the session.
+
+- [x] Always attempt to read `input.request.headers.Cookie` for the session cookie
+  - [x] Lean on: https://jsr.io/@std/http/doc/cookie
+  - [x] `input.session.user = getCookie(input.request.headers, cookieName)` to read
+- [x] `/session/create/<email>`:
+  - [x] Generate `sid = crypto.randomUUID()`.
+  - [x] `storage.set(["session", sid], { email, createdAt }, ttlMs)`.
+  - [x] `setCookie({ name: 'sid', value: sid, httpOnly: true, secure: true, sameSite: 'Lax', path: '/', maxAge: ttlSeconds })`.
+- [x] `/session/sid`:
+  - [x] Extend ttl on every read so active sessions stay alive.
+  - [x] Write `input.storage.kv.set(["session", sid], { email, createdAt }, ttlMs)` again to refresh expiry.
+- [x] Set `Secure` off only when `input.mode?.deploy` is false AND the request origin is `http://localhost`.
+- [x] `- not: /session/user` ⇒ `destroy` mode: `storage.delete(["session", input.session.sid])` and emit a cookie with `maxAge: 0` to clear.
+  - [x] `setCookie({ name: 'sid', value: '', httpOnly: true, secure: true, sameSite: 'Lax', path: '/', maxAge: 0 })`.
 
 ### Phase 4 — Update CLI to inject `storageFs`
 
