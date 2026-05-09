@@ -5,8 +5,8 @@
 ```ts
 import { assert } from "jsr:@std/assert";
 
-import StorageFs from "storageFs";
-import StorageKv from "storageKv";
+import StorageFs from "/storage/fs";
+import StorageKv from "/storage/kv";
 input.fs = StorageFs;
 input.kv = StorageKv;
 ```

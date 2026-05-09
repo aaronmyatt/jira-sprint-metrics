@@ -31,7 +31,7 @@ Set SMTP credentials in environment variables (or pass them on `input`) similarl
 
 - not: /storage
   ```ts
-  import StorageFs from "storageFs";
+  import StorageFs from "/storage/fs";
   input.storage = StorageFs;
   ```
 

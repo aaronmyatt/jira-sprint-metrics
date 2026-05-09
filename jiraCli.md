@@ -26,7 +26,7 @@ const JiraAuthSchema = z.object({
 ```
 
 ```ts
-import StorageFs from "storageFs";
+import StorageFs from "/storage/fs";
 input.storage = StorageFs;
 ```
 

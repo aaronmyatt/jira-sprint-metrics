@@ -215,7 +215,7 @@ public contract on `input` (`action.send|verify`, `email`, `code`, `challengeId`
 ### Phase 4 — Update CLI to inject `storageFs`
 
 - [ ] Edit the `Login` step in [`jiraCli.md`](jiraCli.md#L104):
-  - [ ] Add `import storage from "storageFs";` alongside the existing
+  - [ ] Add `import storage from "/storage/fs";` alongside the existing
         `import magicCodeAuth from "magicCodeAuth";`.
   - [ ] Pass `storage` through both `magicCodeAuth.process({ ..., storage })` calls
         (send + verify).
@@ -262,7 +262,7 @@ conventions: `input.request`, `input.requestBody` (auto-parsed at
 
 - [ ] Inject the storage backend once for every downstream sub-pipe call:
   ```ts
-  import storage from "storageKv";
+  import storage from "/storage/kv";
   input.storage = storage;
   ```
 - [ ] Parse the request URL once and pre-compute method + path booleans.

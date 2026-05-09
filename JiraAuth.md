@@ -4,12 +4,12 @@
 
 - not: /storage
 - ```ts
-  import StorageFs from "storageFs";
+  import StorageFs from "/storage/fs";
   input.storage = StorageFs
   ```
 
 ## Build Auth Header
-
+s
 Construct the Base64-encoded Basic auth header and the base URL from Jira credentials resolved from `input`, `.cache/jira-auth.json`, or `Deno.env`. Store them on `input` so every subsequent fetch step can reuse them without re-reading config.
 
 Deno.env.get("JIRA_DOMAIN")
